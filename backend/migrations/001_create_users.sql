@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS users (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  email VARCHAR(255) NOT NULL,
+  password_hash VARCHAR(255) NOT NULL,
+  nickname VARCHAR(64) NOT NULL,
+  avatar_url VARCHAR(512) NULL,
+  avatar_object_key VARCHAR(512) NULL,
+  role VARCHAR(32) NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'active',
+  bio VARCHAR(200) NULL,
+  birthday DATE NULL,
+  created_at DATETIME(3) NOT NULL,
+  updated_at DATETIME(3) NOT NULL,
+  deleted_at DATETIME(3) NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_users_email (email),
+  KEY idx_users_deleted_at (deleted_at),
+  KEY idx_users_role (role),
+  KEY idx_users_status (status)
+);

@@ -6,6 +6,7 @@ import { useAuth } from "../auth/AuthContext";
 import { API_BASE_URL } from "../api/request";
 import { avatarInitial, resolveAvatarURL } from "../utils/avatar";
 import type { CachedAccount } from "../types";
+import { ThemeSwitcher } from "./ThemeSwitcher";
 
 const ACCOUNT_MENU_WIDTH = 320;
 const ACCOUNT_MENU_GAP = 10;
@@ -175,6 +176,7 @@ export function AppLayout() {
             <p>支持数据拥有者上传加密文件，数据访问者访问授权文件</p>
           </div>
           <div className="topbar-actions">
+            <ThemeSwitcher compact />
             <button className="secondary-action" type="button" onClick={() => void auth.logout()}>
               退出当前账号
             </button>

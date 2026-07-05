@@ -23,7 +23,7 @@ type HealthService struct {
 
 func NewHealthService(cfg config.Config, mysql *gorm.DB, mysqlErr error, redis *redis.Client, redisErr error) *HealthService {
 	return &HealthService{
-		appEnv:   cfg.App.Env,
+		appEnv:   cfg.AppEnv,
 		mysql:    mysql,
 		mysqlErr: mysqlErr,
 		redis:    redis,

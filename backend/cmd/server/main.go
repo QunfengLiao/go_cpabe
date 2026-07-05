@@ -1,41 +1,51 @@
 package main
 
 import (
-	"fmt"
 	"log"
 
 	"go-cpabe/backend/internal/config"
+	"go-cpabe/backend/internal/domain"
+	"go-cpabe/backend/internal/handler"
+	"go-cpabe/backend/internal/pkg/auth"
+	"go-cpabe/backend/internal/pkg/storage"
 	"go-cpabe/backend/internal/repository"
-	"go-cpabe/backend/internal/router"
+	"go-cpabe/backend/internal/service"
 )
 
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("load config failed: %v", err)
+		log.Fatalf("load config: %v", err)
 	}
 
-	mysqlDB, mysqlErr := repository.OpenMySQL(cfg.MySQL)
-	if mysqlErr != nil {
-		log.Printf("mysql init warning: %v", mysqlErr)
+	db, err := config.OpenDatabase(cfg)
+	if err != nil {
+		log.Fatalf("open database: %v", err)
+	}
+	if err := db.AutoMigrate(&domain.User{}); err != nil {
+		log.Fatalf("auto migrate: %v", err)
 	}
 
-	redisClient, redisErr := repository.OpenRedis(cfg.Redis)
-	if redisErr != nil {
-		log.Printf("redis init warning: %v", redisErr)
-	}
+	redisClient := config.OpenRedis(cfg)
+	userRepo := repository.NewGormUserRepository(db)
+	authManager := auth.NewManager(cfg.JWTSecret, cfg.AccessTokenTTL)
+	tokenStore := auth.NewRedisTokenStore(redisClient, cfg.RefreshTokenTTL)
+	localStorage := storage.NewLocalStorage(cfg.AvatarUploadDir, cfg.AvatarURLPrefix)
 
-	r := router.New(router.Dependencies{
-		Config:     cfg,
-		MySQL:      mysqlDB,
-		MySQLError: mysqlErr,
-		Redis:      redisClient,
-		RedisError: redisErr,
+	authSvc := service.NewAuthService(userRepo, authManager, tokenStore, cfg.RefreshTokenTTL)
+	userSvc := service.NewUserService(userRepo, localStorage)
+	healthSvc := service.NewHealthService(cfg, db, nil, redisClient, nil)
+
+	router := handler.NewRouter(handler.Dependencies{
+		AuthService:   authSvc,
+		UserService:   userSvc,
+		AuthManager:   authManager,
+		HealthService: healthSvc,
+		MaxAvatarSize: cfg.AvatarMaxSize,
 	})
+	router.Static(cfg.AvatarURLPrefix, cfg.AvatarUploadDir)
 
-	addr := fmt.Sprintf(":%d", cfg.App.Port)
-	log.Printf("server listening on %s", addr)
-	if err := r.Run(addr); err != nil {
-		log.Fatalf("server stopped: %v", err)
+	if err := router.Run(cfg.ServerAddr); err != nil {
+		log.Fatalf("run server: %v", err)
 	}
 }
