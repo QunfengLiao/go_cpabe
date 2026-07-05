@@ -1,0 +1,68 @@
+# 操作系统文件
+.DS_Store
+Thumbs.db
+
+# 编辑器与 IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# 环境变量与本地配置
+.env
+.env.*
+!.env.example
+*.local
+
+# Node / React
+node_modules/
+dist/
+build/
+.vite/
+.next/
+.turbo/
+coverage/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Go
+bin/
+*.test
+*.out
+coverage.out
+go.work.sum
+
+# 后端构建产物
+tmp/
+logs/
+*.log
+*.pid
+
+# 上传文件、加密文件与本地演示数据
+uploads/
+storage/
+data/
+*.enc
+*.cipher
+*.key
+*.pem
+*.der
+
+# 数据库与缓存本地文件
+*.db
+*.sqlite
+*.sqlite3
+dump.sql
+redis-data/
+mysql-data/
+
+# Docker / Compose 本地覆盖
+docker-compose.override.yml
+
+# SpecKit 与项目文档保留
+!.specify/
+!.specify/**
+!README.md

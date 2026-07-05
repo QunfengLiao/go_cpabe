@@ -1,0 +1,324 @@
+<!--
+同步影响报告
+版本变更: 1.0.0 -> 1.1.0
+修改的原则:
+- I. Hybrid Encryption Is Mandatory -> I. 必须使用混合加密
+- II. Real Go CP-ABE Implementation Only -> II. CP-ABE 必须使用真实 Go 库
+- III. Pluggable Crypto Engines -> III. 算法模块必须可插拔
+- IV. RSA Is a Baseline, Not a Substitute -> IV. RSA 是对比基线，不是 CP-ABE 的替代品
+- V. Policy Expression Is Separate From Cryptography -> V. 策略表达与真实加密解耦
+- VI. Explainability Is a Core Requirement -> VI. 系统必须可解释
+新增原则:
+- VII. 语言与文档规范
+新增章节:
+- 无
+移除章节:
+- 无
+需要同步的模板:
+- ✅ .specify/templates/constitution-template.md
+- ✅ .specify/templates/plan-template.md
+- ✅ .specify/templates/spec-template.md
+- ✅ .specify/templates/tasks-template.md
+- ✅ .specify/templates/commands/constitution.md
+运行文档:
+- ⚠ 待处理: 当前仓库不存在 README.md、docs/quickstart.md 或其他项目说明文档
+后续 TODO:
+- 无
+-->
+
+# CP-ABE 加密文件共享系统宪章
+
+## 项目定位
+
+本项目用于验证密文策略属性基加密 CP-ABE 在细粒度加密文件共享场景中的应用价值。
+
+系统采用 React 前端、Go 后端、MySQL 数据库和 Redis 缓存，围绕文件加密共享、
+访问策略配置、用户属性管理、算法性能对比和策略可视化构建一个可演示、可测试、
+可解释的工程化验证系统。
+
+本项目的重点不是自研生产级密码算法，而是基于真实 Go 密码学库构建完整闭环，用于
+理解和展示 CP-ABE 相比传统公钥加密方案在属性驱动访问控制场景中的特点。
+
+## 核心目标
+
+本项目 MUST 构建完整的加密文件共享闭环：用户拥有属性，文件拥有访问策略，系统根据
+访问策略加密文件密钥，只有属性满足策略的用户才能完成解密。
+
+系统 MUST 支持 RSA 与 CP-ABE 两类方案的对比，用于观察不同接收者数量、不同策略复杂度
+下的加密耗时、解密耗时、密文大小和访问控制效果。
+
+最终系统 MUST 具备以下能力：
+
+- 文件加密共享
+- 用户属性管理
+- 访问策略配置
+- RSA 与 CP-ABE 算法对比
+- 访问树可视化
+- 线性秘密共享方案 LSSS 可视化
+- 加密与解密性能统计
+- 解密成功与失败记录
+
+## 核心原则
+
+### I. 必须使用混合加密
+
+文件内容 MUST 使用 AES-GCM 等对称加密算法加密。RSA 和 CP-ABE 只允许用于加密数据密钥
+DEK，MUST NOT 直接加密大文件内容。
+
+强制加密路径为：
+
+```text
+文件内容 -> AES-GCM 加密
+DEK -> RSA / CP-ABE 加密
+```
+
+理由：该规则保证 RSA 与 CP-ABE 比较的是密钥封装能力，避免把大文件加密错误地交给
+非对称或属性加密算法。
+
+### II. CP-ABE 必须使用真实 Go 库
+
+系统 MUST 使用真实 Go CP-ABE 库完成 CP-ABE 加密和解密。MVP 阶段优先评估并使用
+Cloudflare CIRCL 中的 TKN20 CP-ABE 实现。
+
+如果该库的 API、维护状态、性能或工程适配性不满足项目需求，MAY 替换为其他真实 Go
+CP-ABE 库。无论使用哪种库，系统 MUST NOT 使用数学模拟结果、伪随机结果或手写示例逻辑
+冒充真实 CP-ABE 加解密结果。
+
+理由：项目目标是验证真实 CP-ABE 工程集成价值，而不是展示教学模拟器。
+
+### III. 算法模块必须可插拔
+
+后端 MUST 抽象统一的 `CryptoEngine` 接口。业务层 MUST NOT 直接依赖具体算法实现，只能
+通过 Crypto 模块调用算法能力。
+
+系统至少 MUST 支持：
+
+- `RSAEngine`
+- `TKN20Engine`
+
+后续 MAY 扩展：
+
+- `FAMEEngine`
+- 其他 CP-ABE / KP-ABE 实现
+
+算法模块的替换 MUST NOT 影响 File、User、Policy、Benchmark、Audit 模块和前端展示逻辑。
+
+理由：可插拔算法边界让系统能够对比、替换和扩展密码方案，而不会污染业务代码。
+
+### IV. RSA 是对比基线，不是 CP-ABE 的替代品
+
+RSA MUST 作为传统公钥加密基线，而不是 CP-ABE 的替代品。系统 MUST 清楚表达：RSA 适合
+少量、明确接收者的共享场景；CP-ABE 适合大量用户、属性驱动、策略驱动、细粒度访问控制
+的数据共享场景。
+
+系统 MUST NOT 简化得出以下结论：
+
+```text
+CP-ABE 一定比 RSA 更快
+RSA 一定比 CP-ABE 更差
+```
+
+Benchmark MUST 覆盖以下变量和指标：
+
+- RSA 接收者数量 N
+- CP-ABE 策略复杂度 L
+- 加密耗时
+- 解密耗时
+- 密文大小
+- 解密成功率
+- 访问控制表达能力
+
+Benchmark MUST 区分以下耗时：
+
+- 文件内容 AES-GCM 加密耗时
+- DEK 封装耗时
+- DEK 解封装耗时
+- 文件内容 AES-GCM 解密耗时
+
+RSA 与 CP-ABE 的核心对比 MUST 聚焦 DEK 封装和解封装，MUST NOT 将大文件 AES 加密耗时
+混入算法对比结论。
+
+理由：公平的实验边界能防止误导性结论，并凸显两类方案适用场景的差异。
+
+### V. 策略表达与真实加密解耦
+
+访问树和线性秘密共享方案 LSSS MUST 作为策略表达、策略校验和教学可视化工具。真实
+CP-ABE 加解密 MUST 由 Go CP-ABE 库完成。访问树和 LSSS 工具 MUST NOT 作为真实 CP-ABE
+加密实现。
+
+访问树模块 MUST 负责：
+
+- 解析策略表达式
+- 展示 AND / OR / 阈值门
+- 提取策略中的属性
+- 判断用户属性是否满足策略
+- 转换为 CP-ABE 库可接受的策略格式
+- 统计策略复杂度
+
+LSSS 模块 MUST 负责：
+
+- 展示矩阵视角
+- 展示属性与矩阵行的对应关系
+- 辅助理解秘密恢复过程
+- 辅助解释 CP-ABE 策略结构
+
+理由：策略可视化用于解释和验证输入，密码学安全行为必须来自真实库实现。
+
+### VI. 系统必须可解释
+
+系统 MUST 清楚展示 CP-ABE 的应用过程和访问控制结果。所有核心流程 MUST 能解释以下问题：
+
+- 文件为什么能被某个用户解密
+- 文件为什么不能被某个用户解密
+- 访问策略由哪些属性组成
+- 用户属性满足了策略中的哪些部分
+- RSA 和 CP-ABE 的性能差异来自哪里
+- 访问树和 LSSS 分别如何表达策略
+
+理由：本项目面向学习、演示和面试作品集场景，因此可解释性和可展示性是核心交付物。
+
+### VII. 语言与文档规范
+
+本项目所有 SpecKit 生成的文档 MUST 使用简体中文。该要求覆盖 `spec.md`、`plan.md`、
+`tasks.md`、`research.md`、`data-model.md`、`quickstart.md`、`checklist.md`、
+`contracts/` 目录下的接口说明文档、`README.md` 以及其他项目说明文档。
+
+除代码标识符、文件名、路径、命令、API 路径、JSON 字段名、数据库表名、Go 类型名、
+TypeScript 类型名、第三方库名称和密码学算法名称外，项目文档 MUST NOT 大段使用英文。
+
+技术术语 MAY 采用“中文 + 英文缩写”的形式，例如：数据密钥 DEK、访问结构 Access
+Structure、线性秘密共享方案 LSSS、密文策略属性基加密 CP-ABE。
+
+如果模板中存在英文标题或英文说明，生成文档时 MUST 翻译为简体中文。代码中的变量名、
+函数名、接口名和包名仍然 MUST 使用英文，以避免破坏工程规范和社区惯例。
+
+理由：统一的中文文档降低学习和展示成本，同时保留代码与工程生态中的英文命名规范。
+
+## 技术约束
+
+前端 MUST 使用 React + TypeScript。
+
+后端 MUST 使用 Go + Gin + Gorm。
+
+数据库 MUST 使用 MySQL。
+
+缓存 MUST 使用 Redis。
+
+文件内容加密 MUST 使用 AES-GCM。
+
+RSA 方案 MUST 使用 RSA-OAEP。
+
+CP-ABE 方案优先使用 Cloudflare CIRCL TKN20 CP-ABE；如后续替换，替换后的库 MUST 是真实
+密码学实现，而不是教学模拟实现。
+
+## 系统边界
+
+本项目优先完成单授权机构下的加密文件共享系统。
+
+初始阶段 MUST 优先完成最小可验证闭环：
+
+- 用户属性管理
+- 文件上传
+- 访问策略配置
+- AES-GCM 加密文件内容
+- RSA / CP-ABE 加密 DEK
+- 用户根据属性尝试解密
+- 记录加密和解密结果
+- 展示算法性能对比
+- 展示访问树和 LSSS 可视化
+
+以下能力不属于初始阶段核心范围，MAY 作为后续扩展方向，但 MUST NOT 影响初始闭环完成：
+
+- 多授权机构 ABE
+- 用户撤销
+- 策略隐藏
+- 区块链审计
+- 分布式文件存储
+- 生产级密钥管理系统
+- 生产级密码安全承诺
+
+## 核心模块边界
+
+系统后端至少 MUST 拆分为以下核心模块：
+
+- User 模块：负责用户注册、登录、用户属性管理。
+- File 模块：负责文件上传、下载、文件元数据管理。
+- Policy 模块：负责访问策略解析、校验、访问树生成和 LSSS 可视化。
+- Crypto 模块：负责 AES-GCM、RSA-OAEP、CP-ABE 的统一封装。
+- Benchmark 模块：负责记录加密耗时、解密耗时、密文大小和策略复杂度。
+- Audit 模块：负责记录用户解密成功、解密失败、访问拒绝等操作日志。
+
+业务代码 MUST NOT 将密码算法逻辑散落在 Controller、Service 或 Handler 中。所有密码算法
+能力 MUST 通过 Crypto 模块统一调用。
+
+## 安全边界
+
+本项目用于学习、验证和演示 CP-ABE 应用场景。系统 MUST NOT 声称自研 CP-ABE 代码具备
+生产级安全性。
+
+系统 MUST 明确区分：
+
+- 工程演示能力
+- 密码学安全证明
+- 生产环境安全能力
+
+本项目只承诺工程演示能力，不承诺生产环境安全能力。如果用于生产环境，MUST 经过专业
+密码学安全审计、密钥管理审计和系统安全审计。
+
+## SpecKit 开发流程
+
+本项目采用 SpecKit 进行规格驱动开发。任何核心功能在编码前 MUST 经过：
+
+```text
+spec -> plan -> tasks -> implementation
+```
+
+宪章负责约束项目原则；spec 负责描述具体功能需求；plan 负责描述阶段性实现方案和 MVP
+范围；tasks 负责拆分可执行开发任务；implementation 负责根据任务逐步实现代码。
+
+核心功能 MUST NOT 在没有规格说明的情况下直接生成大段业务代码。
+
+## 开发优先级
+
+项目开发 MUST 优先完成主链路闭环，再扩展高级能力。
+
+优先级顺序如下：
+
+1. 文件加密共享主链路
+2. RSA 与 CP-ABE 算法对比
+3. 访问策略解析和可视化
+4. Benchmark 与审计日志
+5. 高级 CP-ABE 扩展能力
+
+在主链路闭环完成前，MUST NOT 优先投入大量时间实现用户撤销、多授权机构、策略隐藏、
+区块链审计等高级功能。
+
+## 治理
+
+本宪章优先级高于普通规格、计划、任务和实现细节。任何 spec、plan、tasks 或代码实现与
+本宪章冲突时，MUST 先修正下游产物，或通过宪章修订流程修改本宪章。
+
+宪章修订流程：
+
+1. 提交明确的原则、边界或治理修改说明。
+2. 评估变更对 `.specify/templates/`、运行文档和既有规格的影响。
+3. 按语义化版本规则更新版本号。
+4. 更新同步影响报告，并同步所有受影响模板。
+
+版本规则：
+
+- MAJOR：移除原则、重定义原则，或引入与既有治理不兼容的约束。
+- MINOR：新增原则、章节，或实质性扩展既有治理要求。
+- PATCH：澄清、措辞、格式、错别字修复，且不改变治理含义。
+
+合规检查：
+
+- 每个 plan MUST 包含宪章检查，并逐条验证本宪章核心原则。
+- 每个 spec MUST 标明功能如何满足混合加密、真实 CP-ABE、可解释性和模块边界要求。
+- 每个 tasks 文档 MUST 包含 Crypto、Policy、Benchmark、Audit 相关任务，除非对应功能
+  明确不触及这些领域并在 spec 中说明。
+- 每个 SpecKit 生成文档 MUST 遵守“语言与文档规范”，模板标题和说明生成时 MUST 使用
+  简体中文。
+- 实现前 MUST 完成 spec、plan、tasks；实现后 MUST 记录验证结果和任何偏离宪章的风险。
+
+**版本**: 1.1.0 | **批准日期**: 2026-07-05 | **最后修订**: 2026-07-05
