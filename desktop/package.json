@@ -9,12 +9,22 @@
     "build:main": "tsc -p tsconfig.electron.json",
     "build:renderer": "vite build",
     "build": "npm run build:main && npm run build:renderer",
-    "dev": "npm run build && electron dist/main/main.js"
+    "dev:renderer": "vite --host 127.0.0.1",
+    "dev": "npm run build && electron dist/main/main.js",
+    "preview": "vite preview --host 127.0.0.1"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.1.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
     "electron": "^33.2.1",
     "typescript": "^5.7.2",
-    "vite": "^6.0.5"
+    "vite": "^6.0.7"
   }
 }
