@@ -54,6 +54,15 @@ export function LoginPage() {
     }
   }
 
+  function onCancelAddAccount() {
+    // 添加账号只是临时进入登录表单，不能清空当前账号或 cachedAccounts，否则会破坏多账号切换上下文。
+    if (window.history.length > 1) {
+      navigate(-1);
+      return;
+    }
+    navigate(auth.isAuthenticated ? "/profile" : "/login", { replace: true });
+  }
+
   // 登录守卫动画只跟随表单交互状态变化，不参与认证逻辑，避免影响双 Token 登录流程。
   // 密码框聚焦时默认遮眼，是为了用视觉反馈提示“敏感凭证正在输入”，显示密码时再切换为半遮状态。
   const robotState: LoginRobotState = loginSucceeded
@@ -94,6 +103,11 @@ export function LoginPage() {
       onSubmit={(event) => void onSubmit(event)}
       ref={cardRef}
     >
+      {isAddAccountMode && (
+        <button className="auth-back-button" onClick={onCancelAddAccount} type="button">
+          ← 返回当前账号
+        </button>
+      )}
       <LoginRobot state={robotState} eyeOffset={eyeOffset} />
       <div className="form-title">
         <h2>{isAddAccountMode ? "添加账号" : "登录"}</h2>
