@@ -15,7 +15,7 @@ Thumbs.db
 !.env.example
 *.local
 
-# Node / React
+# Node / Electron
 node_modules/
 dist/
 build/
