@@ -69,7 +69,7 @@ TypeScript 类型名、第三方库名称和密码学算法名称外，不允许
 前端使用：
 
 ```text
-React + TypeScript
+Electron + TypeScript
 ```
 
 后端使用：

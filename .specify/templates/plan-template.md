@@ -10,10 +10,10 @@
 ## 技术上下文
 
 **语言/版本**：Go、TypeScript
-**主要依赖**：Gin、Gorm、React、MySQL、Redis；涉及 CP-ABE 时优先使用 Cloudflare CIRCL TKN20
+**主要依赖**：Gin、Gorm、Electron、MySQL、Redis；涉及 CP-ABE 时优先使用 Cloudflare CIRCL TKN20
 **存储**：MySQL 保存元数据和审计记录；Redis 用于缓存或会话需求
-**测试**：后端使用 Go 测试；引入前端交互时补充前端测试
-**目标项目**：React 前端 + Go 后端的 CP-ABE 加密文件共享系统
+**测试**：后端使用 Go 测试；引入桌面端交互时补充 Electron/TypeScript 测试
+**目标项目**：Electron 桌面端 + Go 后端的 CP-ABE 加密文件共享系统
 **性能目标**：单独记录 AES-GCM 耗时，并与 DEK 封装/解封装耗时分离
 **约束**：只允许混合加密；CP-ABE 必须来自真实 Go 库；不得使用模拟密码学结果
 **规模/范围**：优先完成单授权机构 MVP，再考虑高级 ABE 能力
