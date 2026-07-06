@@ -43,7 +43,7 @@ logs/
 
 # 上传文件、加密文件与本地演示数据
 uploads/
-storage/
+#storage/
 data/
 *.enc
 *.cipher
