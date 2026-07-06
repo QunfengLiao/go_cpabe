@@ -1,3 +1,4 @@
 {
+  "feature_directory": "specs/001-user-auth-profile"
   "feature_directory": "specs/001-basic-project-init"
 }
