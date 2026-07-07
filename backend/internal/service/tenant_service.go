@@ -27,6 +27,13 @@ type AddTenantUserInput struct {
 	Roles  []domain.RoleCode
 }
 
+var demoTenants = []domain.Tenant{
+	{Name: "四川师范大学", Code: "scnu", Status: domain.TenantStatusEnabled, Description: "科研数据安全共享演示租户"},
+	{Name: "深信服科技", Code: "sangfor", Status: domain.TenantStatusEnabled, Description: "企业安全协作演示租户"},
+	{Name: "香港友邦保险", Code: "aia-hk", Status: domain.TenantStatusEnabled, Description: "保险数据协作演示租户"},
+	{Name: "默认租户", Code: domain.DefaultTenantCode, Status: domain.TenantStatusEnabled, Description: "用于承接单租户阶段的历史用户和演示数据"},
+}
+
 func NewTenantService(tenants repository.TenantRepository, users repository.UserRepository) *TenantService {
 	return &TenantService{tenants: tenants, users: users}
 }
@@ -35,14 +42,11 @@ func (s *TenantService) BootstrapDefaultTenant(ctx context.Context) error {
 	if err := s.EnsureBaseRoles(ctx); err != nil {
 		return err
 	}
-	tenant, err := s.tenants.EnsureTenant(ctx, &domain.Tenant{
-		Name:        "默认租户",
-		Code:        domain.DefaultTenantCode,
-		Status:      domain.TenantStatusEnabled,
-		Description: "用于承接单租户阶段的历史用户和演示数据",
-	})
-	if err != nil {
-		return err
+	for i := range demoTenants {
+		tenant := demoTenants[i]
+		if _, err := s.tenants.EnsureTenant(ctx, &tenant); err != nil {
+			return err
+		}
 	}
 	users, err := s.users.ListAll(ctx)
 	if err != nil {
@@ -53,7 +57,6 @@ func (s *TenantService) BootstrapDefaultTenant(ctx context.Context) error {
 			return err
 		}
 	}
-	_ = tenant
 	return nil
 }
 
@@ -119,6 +122,10 @@ func (s *TenantService) TenantContextForUser(ctx context.Context, userID uint64)
 		currentCode = &items[0].TenantCode
 	}
 	return domain.TenantContextDTO{CurrentTenantID: current, CurrentTenantCode: currentCode, Tenants: items}, nil
+}
+
+func (s *TenantService) PlatformRolesForUser(ctx context.Context, userID uint64) ([]domain.RoleCode, error) {
+	return s.tenants.ListPlatformRoleCodes(ctx, userID)
 }
 
 func (s *TenantService) TenantContextForUserByCode(ctx context.Context, userID uint64, tenantCode string) (domain.TenantContextDTO, error) {

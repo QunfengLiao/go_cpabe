@@ -333,10 +333,35 @@ func (r *testTenantRepo) EnsureUserRole(_ context.Context, tenantID *uint64, use
 	return nil
 }
 
+func (r *testTenantRepo) RemoveUserRole(_ context.Context, tenantID *uint64, userID uint64, roleCode domain.RoleCode) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	roleID, ok := r.roleCodes[roleCode]
+	if !ok {
+		return repository.ErrRoleNotFound
+	}
+	delete(r.assignments, tenantRoleKey(tenantID, userID, roleID))
+	return nil
+}
+
 func (r *testTenantRepo) ListRoleCodesByUserTenant(_ context.Context, userID uint64, tenantID uint64) ([]domain.RoleCode, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.roleCodesByUserTenantLocked(userID, tenantID), nil
+}
+
+func (r *testTenantRepo) ListPlatformRoleCodes(_ context.Context, userID uint64) ([]domain.RoleCode, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	roles := []domain.RoleCode{}
+	for _, assignment := range r.assignments {
+		if assignment.UserID == userID && assignment.TenantID == nil {
+			if role := r.roles[assignment.RoleID]; role != nil {
+				roles = append(roles, role.Code)
+			}
+		}
+	}
+	return roles, nil
 }
 
 func (r *testTenantRepo) HasRole(_ context.Context, userID uint64, tenantID *uint64, roleCode domain.RoleCode) (bool, error) {
@@ -350,6 +375,18 @@ func (r *testTenantRepo) HasRole(_ context.Context, userID uint64, tenantID *uin
 	return ok, nil
 }
 
+func (r *testTenantRepo) CountTenantAdmins(_ context.Context, tenantID uint64) (int64, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var count int64
+	for _, member := range r.members {
+		if member.TenantID == tenantID && member.Status == domain.TenantUserStatusActive && hasTestRole(r, tenantID, member.UserID, domain.RoleTenantAdmin) {
+			count++
+		}
+	}
+	return count, nil
+}
+
 func (r *testTenantRepo) roleCodesByUserTenantLocked(userID uint64, tenantID uint64) []domain.RoleCode {
 	roles := []domain.RoleCode{}
 	for _, assignment := range r.assignments {
@@ -361,6 +398,15 @@ func (r *testTenantRepo) roleCodesByUserTenantLocked(userID uint64, tenantID uin
 		}
 	}
 	return roles
+}
+
+func hasTestRole(r *testTenantRepo, tenantID uint64, userID uint64, roleCode domain.RoleCode) bool {
+	roleID, ok := r.roleCodes[roleCode]
+	if !ok {
+		return false
+	}
+	_, ok = r.assignments[tenantRoleKey(&tenantID, userID, roleID)]
+	return ok
 }
 
 type testApp struct {
@@ -380,9 +426,25 @@ func newTestApp() testApp {
 	if err := tenantSvc.BootstrapDefaultTenant(context.Background()); err != nil {
 		panic(err)
 	}
+	auditRecorder := service.NoopAuditRecorder{}
+	platformTenantSvc := service.NewPlatformTenantService(tenantRepo, repo, auditRecorder)
+	platformTenantUserSvc := service.NewPlatformTenantUserService(tenantRepo, repo, auditRecorder)
+	platformRoleSvc := service.NewPlatformRoleService(tenantRepo, repo, auditRecorder)
+	platformDashboardSvc := service.NewPlatformDashboardService(tenantRepo, repo)
 	authSvc := service.NewAuthService(repo, manager, store, time.Hour, tenantSvc)
 	userSvc := service.NewUserService(repo, testStorage{})
-	router := NewRouter(Dependencies{AuthService: authSvc, UserService: userSvc, TenantService: tenantSvc, AuthManager: manager, MaxAvatarSize: 2 * 1024 * 1024})
+	router := NewRouter(Dependencies{
+		AuthService:               authSvc,
+		UserService:               userSvc,
+		TenantService:             tenantSvc,
+		PlatformTenantService:     platformTenantSvc,
+		PlatformTenantUserService: platformTenantUserSvc,
+		PlatformRoleService:       platformRoleSvc,
+		PlatformDashboardService:  platformDashboardSvc,
+		PlatformRoleResolver:      tenantRepo,
+		AuthManager:               manager,
+		MaxAvatarSize:             2 * 1024 * 1024,
+	})
 	return testApp{router: router, repo: repo, tenantRepo: tenantRepo, store: store}
 }
 

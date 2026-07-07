@@ -97,9 +97,10 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (domain
 }
 
 type LoginResult struct {
-	TokenPair auth.TokenPair
-	User      domain.UserDTO
-	Tenant    domain.TenantContextDTO
+	TokenPair     auth.TokenPair
+	User          domain.UserDTO
+	Tenant        domain.TenantContextDTO
+	PlatformRoles []domain.RoleCode
 }
 
 func (s *AuthService) Login(ctx context.Context, input LoginInput) (LoginResult, error) {
@@ -120,6 +121,12 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (LoginResult,
 			return LoginResult{}, err
 		}
 		result.Tenant = tenantContext
+		// 平台角色只用于前端菜单展示；平台接口仍会在服务端重新查询 user_roles 做授权。
+		platformRoles, err := s.tenants.PlatformRolesForUser(ctx, user.ID)
+		if err != nil {
+			return LoginResult{}, err
+		}
+		result.PlatformRoles = platformRoles
 	}
 	pair, err := s.issueTokenPair(ctx, user.ID, user.Role, "", input.UserAgent, input.ClientIP)
 	if err != nil {

@@ -63,6 +63,7 @@ mysql-data/
 docker-compose.override.yml
 
 # SpecKit 与项目文档保留
-!.specify/
-!.specify/**
+.specify/
+.agents/
+.specify/**
 !README.md

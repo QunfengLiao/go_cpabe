@@ -32,8 +32,11 @@ type TenantRepository interface {
 	EnsureRole(ctx context.Context, role *domain.Role) (*domain.Role, error)
 	FindRoleByCode(ctx context.Context, code domain.RoleCode) (*domain.Role, error)
 	EnsureUserRole(ctx context.Context, tenantID *uint64, userID uint64, roleCode domain.RoleCode) error
+	RemoveUserRole(ctx context.Context, tenantID *uint64, userID uint64, roleCode domain.RoleCode) error
 	ListRoleCodesByUserTenant(ctx context.Context, userID uint64, tenantID uint64) ([]domain.RoleCode, error)
+	ListPlatformRoleCodes(ctx context.Context, userID uint64) ([]domain.RoleCode, error)
 	HasRole(ctx context.Context, userID uint64, tenantID *uint64, roleCode domain.RoleCode) (bool, error)
+	CountTenantAdmins(ctx context.Context, tenantID uint64) (int64, error)
 }
 
 type TenantMemberRecord struct {
@@ -186,11 +189,36 @@ func (r *GormTenantRepository) EnsureUserRole(ctx context.Context, tenantID *uin
 	if err != nil {
 		return err
 	}
+	if tenantID == nil {
+		// MySQL 唯一索引不会把 NULL 当作相等值；平台级角色必须先查后写，避免重复授权记录。
+		hasRole, err := r.HasRole(ctx, userID, nil, roleCode)
+		if err != nil {
+			return err
+		}
+		if hasRole {
+			return nil
+		}
+	}
 	assignment := domain.UserRoleAssignment{TenantID: tenantID, UserID: userID, RoleID: role.ID}
 	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "tenant_id"}, {Name: "user_id"}, {Name: "role_id"}},
 		DoNothing: true,
 	}).Create(&assignment).Error
+}
+
+func (r *GormTenantRepository) RemoveUserRole(ctx context.Context, tenantID *uint64, userID uint64, roleCode domain.RoleCode) error {
+	role, err := r.FindRoleByCode(ctx, roleCode)
+	if err != nil {
+		return err
+	}
+	query := r.db.WithContext(ctx).Unscoped().
+		Where("user_id = ? AND role_id = ?", userID, role.ID)
+	if tenantID == nil {
+		query = query.Where("tenant_id IS NULL")
+	} else {
+		query = query.Where("tenant_id = ?", *tenantID)
+	}
+	return query.Delete(&domain.UserRoleAssignment{}).Error
 }
 
 func (r *GormTenantRepository) ListRoleCodesByUserTenant(ctx context.Context, userID uint64, tenantID uint64) ([]domain.RoleCode, error) {
@@ -200,6 +228,25 @@ func (r *GormTenantRepository) ListRoleCodesByUserTenant(ctx context.Context, us
 		Select("roles.*").
 		Joins("JOIN user_roles ON user_roles.role_id = roles.id").
 		Where("user_roles.user_id = ? AND user_roles.tenant_id = ?", userID, tenantID).
+		Order("roles.id ASC").
+		Find(&roles).Error
+	if err != nil {
+		return nil, err
+	}
+	codes := make([]domain.RoleCode, 0, len(roles))
+	for _, role := range roles {
+		codes = append(codes, role.Code)
+	}
+	return codes, nil
+}
+
+func (r *GormTenantRepository) ListPlatformRoleCodes(ctx context.Context, userID uint64) ([]domain.RoleCode, error) {
+	var roles []domain.Role
+	err := r.db.WithContext(ctx).
+		Table("roles").
+		Select("roles.*").
+		Joins("JOIN user_roles ON user_roles.role_id = roles.id").
+		Where("user_roles.user_id = ? AND user_roles.tenant_id IS NULL", userID).
 		Order("roles.id ASC").
 		Find(&roles).Error
 	if err != nil {
@@ -226,4 +273,15 @@ func (r *GormTenantRepository) HasRole(ctx context.Context, userID uint64, tenan
 		return false, err
 	}
 	return count > 0, nil
+}
+
+func (r *GormTenantRepository) CountTenantAdmins(ctx context.Context, tenantID uint64) (int64, error) {
+	var count int64
+	err := r.db.WithContext(ctx).Table("user_roles").
+		Joins("JOIN roles ON roles.id = user_roles.role_id").
+		Joins("JOIN tenant_users ON tenant_users.tenant_id = user_roles.tenant_id AND tenant_users.user_id = user_roles.user_id").
+		Where("user_roles.tenant_id = ? AND roles.code = ? AND tenant_users.status = ?", tenantID, domain.RoleTenantAdmin, domain.TenantUserStatusActive).
+		Distinct("user_roles.user_id").
+		Count(&count).Error
+	return count, err
 }

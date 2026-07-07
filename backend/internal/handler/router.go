@@ -8,12 +8,17 @@ import (
 )
 
 type Dependencies struct {
-	AuthService   *service.AuthService
-	UserService   *service.UserService
-	TenantService *service.TenantService
-	AuthManager   *auth.Manager
-	HealthService *service.HealthService
-	MaxAvatarSize int64
+	AuthService               *service.AuthService
+	UserService               *service.UserService
+	TenantService             *service.TenantService
+	PlatformTenantService     *service.PlatformTenantService
+	PlatformTenantUserService *service.PlatformTenantUserService
+	PlatformRoleService       *service.PlatformRoleService
+	PlatformDashboardService  *service.PlatformDashboardService
+	PlatformRoleResolver      middleware.PlatformRoleResolver
+	AuthManager               *auth.Manager
+	HealthService             *service.HealthService
+	MaxAvatarSize             int64
 }
 
 func NewRouter(deps Dependencies) *gin.Engine {
@@ -23,6 +28,12 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	authHandler := NewAuthHandler(deps.AuthService)
 	userHandler := NewUserHandler(deps.UserService, deps.MaxAvatarSize)
 	tenantHandler := NewTenantHandler(deps.TenantService)
+	platformHandler := NewPlatformHandler(
+		deps.PlatformTenantService,
+		deps.PlatformTenantUserService,
+		deps.PlatformRoleService,
+		deps.PlatformDashboardService,
+	)
 
 	if deps.HealthService != nil {
 		healthHandler := NewHealthHandler(deps.HealthService)
@@ -48,6 +59,19 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	tenants.POST("/:id/users", tenantHandler.AddTenantUser)
 	tenants.DELETE("/:id/users/:userId", tenantHandler.RemoveTenantUser)
 	tenants.GET("/:id/users", tenantHandler.ListTenantUsers)
+
+	platform := api.Group("/platform", middleware.AuthRequired(deps.AuthManager), middleware.PlatformAdminRequired(deps.PlatformRoleResolver))
+	platform.GET("/dashboard", platformHandler.Dashboard)
+	platform.GET("/tenants", platformHandler.ListTenants)
+	platform.POST("/tenants", platformHandler.CreateTenant)
+	platform.GET("/tenants/:id", platformHandler.TenantDetail)
+	platform.PATCH("/tenants/:id/enable", platformHandler.EnableTenant)
+	platform.PATCH("/tenants/:id/disable", platformHandler.DisableTenant)
+	platform.GET("/tenants/:id/users", platformHandler.ListTenantUsers)
+	platform.POST("/tenants/:id/users", platformHandler.AddTenantUser)
+	platform.DELETE("/tenants/:id/users/:userId", platformHandler.RemoveTenantUser)
+	platform.POST("/tenants/:id/admins", platformHandler.AssignTenantAdmin)
+	platform.DELETE("/tenants/:id/admins/:userId", platformHandler.RemoveTenantAdmin)
 
 	protected := api.Group("/users", middleware.AuthRequired(deps.AuthManager))
 	protected.GET("/me", userHandler.Me)

@@ -1,4 +1,4 @@
-import type { AuthStateSnapshot, CachedAccount, LoginData, RefreshData, TenantSummary, User } from "../types";
+import type { AuthStateSnapshot, CachedAccount, LoginData, RefreshData, TenantRole, TenantSummary, User } from "../types";
 import {
   clearAllTokens,
   clearCurrentTokens,
@@ -17,6 +17,7 @@ const CURRENT_TENANT_ID_KEY = "go_cpabe_current_tenant_id";
 const CURRENT_TENANT_CODE_KEY = "go_cpabe_current_tenant_code";
 const LAST_TENANT_CODE_KEY = "go_cpabe_last_tenant_code";
 const TENANTS_KEY = "go_cpabe_tenants";
+const PLATFORM_ROLES_KEY = "go_cpabe_platform_roles";
 const CACHED_ACCOUNTS_KEY = "go_cpabe_cached_accounts";
 
 type LegacyCachedAccount = Partial<CachedAccount> & {
@@ -34,8 +35,12 @@ function refreshTokenExpiresAt(expiresIn?: number): number | undefined {
   return expiresIn ? Date.now() + expiresIn * 1000 : undefined;
 }
 
-function toCachedAccount(user: User): CachedAccount {
-  return {
+function normalizePlatformRoles(roles?: TenantRole[]): TenantRole[] {
+  return (roles ?? []).filter((role) => role === "PLATFORM_ADMIN");
+}
+
+function toCachedAccount(user: User, platformRoles?: TenantRole[]): CachedAccount {
+  const account: CachedAccount = {
     userId: userIdOf(user),
     email: user.email,
     nickname: user.nickname,
@@ -45,6 +50,10 @@ function toCachedAccount(user: User): CachedAccount {
     expired: false,
     loggedOut: false
   };
+  if (platformRoles) {
+    account.platformRoles = normalizePlatformRoles(platformRoles);
+  }
+  return account;
 }
 
 function normalizeTenant(tenant: TenantSummary): TenantSummary {
@@ -56,7 +65,12 @@ function normalizeTenant(tenant: TenantSummary): TenantSummary {
     tenant_name: tenantName,
     tenant_code: tenantCode,
     status: tenant.status,
-    roles: tenant.roles ?? []
+    description: tenant.description,
+    roles: tenant.roles ?? [],
+    user_count: tenant.user_count,
+    tenant_admin_count: tenant.tenant_admin_count,
+    created_at: tenant.created_at,
+    updated_at: tenant.updated_at
   };
 }
 
@@ -102,6 +116,7 @@ function sanitizeCachedAccount(account: LegacyCachedAccount, userId = String(acc
     nickname: String(account.nickname || account.email || "未命名账号"),
     role: account.role ?? "data_user",
     avatarUrl: account.avatarUrl,
+    platformRoles: normalizePlatformRoles(account.platformRoles),
     lastLoginAt: Number(account.lastLoginAt ?? account.lastActiveAt ?? Date.now()),
     expired: Boolean(account.expired),
     loggedOut: Boolean(account.loggedOut)
@@ -164,6 +179,17 @@ export function getStoredTenants(): TenantSummary[] {
   }
 }
 
+export function getStoredPlatformRoles(): TenantRole[] {
+  const raw = localStorage.getItem(PLATFORM_ROLES_KEY);
+  if (!raw) return [];
+  try {
+    const roles = JSON.parse(raw) as TenantRole[];
+    return Array.isArray(roles) ? roles.filter((role) => role === "PLATFORM_ADMIN") : [];
+  } catch {
+    return [];
+  }
+}
+
 export function saveCurrentTenant(tenantId: number | string, tenantCode?: string | null): void {
   const normalizedId = String(tenantId || "");
   const normalizedCode = String(tenantCode || "").trim();
@@ -199,6 +225,10 @@ export function getAuthSnapshot(): AuthStateSnapshot {
     accessToken: getAccessToken(),
     refreshToken,
     user,
+    tenants: getStoredTenants(),
+    currentTenantId: getCurrentTenantId(),
+    currentTenantCode: getCurrentTenantCode(),
+    platformRoles: normalizePlatformRoles(getStoredPlatformRoles()),
     cachedAccounts
   };
 }
@@ -216,9 +246,10 @@ export function saveTokens(accessToken: string, refreshToken?: string): void {
 }
 
 export function saveLoginSession(data: LoginData): AuthStateSnapshot {
-  const account = toCachedAccount(data.user);
   const expiresAt = refreshTokenExpiresAt(data.refresh_token_expires_in);
   const tenants = (data.tenants ?? []).map(normalizeTenant);
+  const platformRoles = normalizePlatformRoles(data.platform_roles ?? data.platformRoles);
+  const account = toCachedAccount(data.user, platformRoles);
   const currentTenantID = data.current_tenant_id ?? data.currentTenantId ?? null;
   const currentTenantCode =
     data.current_tenant_code ??
@@ -229,6 +260,7 @@ export function saveLoginSession(data: LoginData): AuthStateSnapshot {
   saveAccountRefreshToken(account.userId, data.refresh_token, expiresAt);
   saveUser(data.user);
   localStorage.setItem(TENANTS_KEY, JSON.stringify(tenants));
+  localStorage.setItem(PLATFORM_ROLES_KEY, JSON.stringify(platformRoles));
   if (currentTenantID) {
     saveCurrentTenant(currentTenantID, currentTenantCode);
   } else {
@@ -242,6 +274,10 @@ export function saveLoginSession(data: LoginData): AuthStateSnapshot {
     accessToken: data.access_token,
     refreshToken: data.refresh_token,
     user: data.user,
+    tenants,
+    currentTenantId: currentTenantID ? String(currentTenantID) : "",
+    currentTenantCode: currentTenantCode ?? "",
+    platformRoles,
     cachedAccounts
   };
 }
@@ -256,6 +292,10 @@ export function saveRefreshedSession(account: CachedAccount, data: RefreshData, 
   if (user) saveUser(user);
   if (!user && previousUserId && previousUserId !== nextUserId) saveUser(null);
   localStorage.setItem(CURRENT_USER_ID_KEY, nextUserId);
+  const platformRoles = normalizePlatformRoles(account.platformRoles);
+  // refresh 接口只轮换 token，不返回角色；多账号切换时必须使用账号自己的缓存角色，
+  // 否则普通账号可能沿用上一个 Platform Admin 的本地菜单状态。真正授权仍由后端中间件判断。
+  localStorage.setItem(PLATFORM_ROLES_KEY, JSON.stringify(platformRoles));
 
   const cachedAccounts = upsertCachedAccount({
     ...account,
@@ -264,6 +304,7 @@ export function saveRefreshedSession(account: CachedAccount, data: RefreshData, 
     nickname: user?.nickname ?? account.nickname,
     role: user?.role ?? account.role,
     avatarUrl: user?.avatar_url || account.avatarUrl,
+    platformRoles,
     lastLoginAt: Date.now(),
     expired: false,
     loggedOut: false
@@ -274,6 +315,10 @@ export function saveRefreshedSession(account: CachedAccount, data: RefreshData, 
     accessToken: data.access_token,
     refreshToken: nextRefreshToken,
     user: user ?? getStoredUser(),
+    tenants: getStoredTenants(),
+    currentTenantId: getCurrentTenantId(),
+    currentTenantCode: getCurrentTenantCode(),
+    platformRoles,
     cachedAccounts
   };
 }
@@ -335,6 +380,7 @@ export function clearCurrentSession(): void {
   localStorage.removeItem(CURRENT_TENANT_ID_KEY);
   localStorage.removeItem(CURRENT_TENANT_CODE_KEY);
   localStorage.removeItem(TENANTS_KEY);
+  localStorage.removeItem(PLATFORM_ROLES_KEY);
   clearSessionAuthState();
 }
 
@@ -345,6 +391,7 @@ export function clearTenantStartupSession(): void {
   localStorage.removeItem(CURRENT_TENANT_ID_KEY);
   localStorage.removeItem(CURRENT_TENANT_CODE_KEY);
   localStorage.removeItem(TENANTS_KEY);
+  localStorage.removeItem(PLATFORM_ROLES_KEY);
   clearSessionAuthState();
 }
 

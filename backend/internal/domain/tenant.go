@@ -67,11 +67,16 @@ func (UserRoleAssignment) TableName() string {
 }
 
 type TenantDTO struct {
-	TenantID   uint64       `json:"tenant_id"`
-	TenantName string       `json:"tenant_name"`
-	TenantCode string       `json:"tenant_code"`
-	Status     TenantStatus `json:"status,omitempty"`
-	Roles      []RoleCode   `json:"roles,omitempty"`
+	TenantID         uint64       `json:"tenant_id"`
+	TenantName       string       `json:"tenant_name"`
+	TenantCode       string       `json:"tenant_code"`
+	Status           TenantStatus `json:"status,omitempty"`
+	Description      string       `json:"description,omitempty"`
+	Roles            []RoleCode   `json:"roles,omitempty"`
+	UserCount        int64        `json:"user_count,omitempty"`
+	TenantAdminCount int64        `json:"tenant_admin_count,omitempty"`
+	CreatedAt        *time.Time   `json:"created_at,omitempty"`
+	UpdatedAt        *time.Time   `json:"updated_at,omitempty"`
 }
 
 type TenantContextDTO struct {
@@ -81,16 +86,34 @@ type TenantContextDTO struct {
 }
 
 type SwitchTenantDTO struct {
-	CurrentTenantID uint64      `json:"current_tenant_id"`
-	Tenant          TenantDTO   `json:"tenant"`
-	Roles           []RoleCode  `json:"roles"`
-	Menus           []any       `json:"menus"`
+	CurrentTenantID uint64     `json:"current_tenant_id"`
+	Tenant          TenantDTO  `json:"tenant"`
+	Roles           []RoleCode `json:"roles"`
+	Menus           []any      `json:"menus"`
 }
 
 type TenantMemberDTO struct {
-	UserID       uint64             `json:"user_id"`
-	Email        string             `json:"email"`
-	Nickname     string             `json:"nickname"`
-	MemberStatus TenantUserStatus   `json:"member_status"`
-	Roles        []RoleCode         `json:"roles"`
+	UserID       uint64           `json:"user_id"`
+	Email        string           `json:"email"`
+	Nickname     string           `json:"nickname"`
+	MemberStatus TenantUserStatus `json:"member_status"`
+	Roles        []RoleCode       `json:"roles"`
+}
+
+type TenantAdminAssignmentDTO struct {
+	TenantID uint64   `json:"tenant_id"`
+	UserID   uint64   `json:"user_id"`
+	Role     RoleCode `json:"role"`
+	Assigned bool     `json:"assigned,omitempty"`
+	Removed  bool     `json:"removed,omitempty"`
+}
+
+type PlatformDashboardDTO struct {
+	TenantCount         int64 `json:"tenant_count"`
+	EnabledTenantCount  int64 `json:"enabled_tenant_count"`
+	DisabledTenantCount int64 `json:"disabled_tenant_count"`
+	UserCount           int64 `json:"user_count"`
+	TenantUserCount     int64 `json:"tenant_user_count"`
+	TenantAdminCount    int64 `json:"tenant_admin_count"`
+	AuditEnabled        bool  `json:"audit_enabled"`
 }

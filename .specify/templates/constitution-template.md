@@ -1,73 +1,50 @@
-# [PROJECT_NAME] 宪章
+# [PROJECT_NAME] Constitution
+<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
 
-## 项目定位
+## Core Principles
 
-[PROJECT_POSITIONING]
+### [PRINCIPLE_1_NAME]
+<!-- Example: I. Library-First -->
+[PRINCIPLE_1_DESCRIPTION]
+<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
 
-## 核心目标
+### [PRINCIPLE_2_NAME]
+<!-- Example: II. CLI Interface -->
+[PRINCIPLE_2_DESCRIPTION]
+<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
 
-[CORE_GOALS]
+### [PRINCIPLE_3_NAME]
+<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
+[PRINCIPLE_3_DESCRIPTION]
+<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
 
-## 核心原则
+### [PRINCIPLE_4_NAME]
+<!-- Example: IV. Integration Testing -->
+[PRINCIPLE_4_DESCRIPTION]
+<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
 
-### I. [PRINCIPLE_1_NAME]
+### [PRINCIPLE_5_NAME]
+<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
+[PRINCIPLE_5_DESCRIPTION]
+<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
 
-[PRINCIPLE_1_TEXT]
+## [SECTION_2_NAME]
+<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
 
-### II. [PRINCIPLE_2_NAME]
+[SECTION_2_CONTENT]
+<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
 
-[PRINCIPLE_2_TEXT]
+## [SECTION_3_NAME]
+<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
 
-### III. [PRINCIPLE_3_NAME]
+[SECTION_3_CONTENT]
+<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
 
-[PRINCIPLE_3_TEXT]
-
-### IV. [PRINCIPLE_4_NAME]
-
-[PRINCIPLE_4_TEXT]
-
-### V. [PRINCIPLE_5_NAME]
-
-[PRINCIPLE_5_TEXT]
-
-### VI. [PRINCIPLE_6_NAME]
-
-[PRINCIPLE_6_TEXT]
-
-### VII. [PRINCIPLE_7_NAME]
-
-[PRINCIPLE_7_TEXT]
-
-### VIII. [PRINCIPLE_8_NAME]
-
-[PRINCIPLE_8_TEXT]
-
-## 技术约束
-
-[TECHNICAL_CONSTRAINTS]
-
-## 系统边界
-
-[SYSTEM_BOUNDARY]
-
-## 核心模块边界
-
-[CORE_MODULE_BOUNDARIES]
-
-## 安全边界
-
-[SECURITY_BOUNDARY]
-
-## SpecKit 开发流程
-
-[SPECKIT_DEVELOPMENT_WORKFLOW]
-
-## 开发优先级
-
-[DEVELOPMENT_PRIORITY]
-
-## 治理
+## Governance
+<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
 [GOVERNANCE_RULES]
+<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
 
-**版本**: [CONSTITUTION_VERSION] | **批准日期**: [RATIFICATION_DATE] | **最后修订**: [LAST_AMENDED_DATE]
+**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
+<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->

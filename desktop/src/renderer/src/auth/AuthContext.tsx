@@ -20,13 +20,18 @@ import {
 import { getCurrentUser } from "../api/user";
 import { ApiError } from "../api/request";
 import { setAuthExpiredHandler } from "../api/request";
-import type { CachedAccount, LoginData, User } from "../types";
+import type { CachedAccount, LoginData, TenantRole, TenantSummary, User } from "../types";
 
 interface AuthContextValue {
   currentUserId: string;
   accessToken: string;
   refreshToken: string;
   user: User | null;
+  tenants: TenantSummary[];
+  currentTenantId: string;
+  currentTenantCode: string;
+  platformRoles: TenantRole[];
+  isPlatformAdmin: boolean;
   cachedAccounts: CachedAccount[];
   isAuthenticated: boolean;
   notice: string;
@@ -50,6 +55,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [accessToken, setAccessToken] = useState(initial.accessToken);
   const [refreshToken, setRefreshToken] = useState(initial.refreshToken);
   const [user, setUserState] = useState<User | null>(initial.user);
+  const [tenants, setTenants] = useState<TenantSummary[]>(initial.tenants);
+  const [currentTenantId, setCurrentTenantIdState] = useState(initial.currentTenantId);
+  const [currentTenantCode, setCurrentTenantCodeState] = useState(initial.currentTenantCode);
+  const [platformRoles, setPlatformRoles] = useState<TenantRole[]>(initial.platformRoles);
   const [cachedAccounts, setCachedAccounts] = useState<CachedAccount[]>(initial.cachedAccounts);
   const [notice, setNotice] = useState("");
 
@@ -59,6 +68,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setAccessToken(snapshot.accessToken);
     setRefreshToken(snapshot.refreshToken);
     setUserState(snapshot.user);
+    setTenants(snapshot.tenants);
+    setCurrentTenantIdState(snapshot.currentTenantId);
+    setCurrentTenantCodeState(snapshot.currentTenantCode);
+    setPlatformRoles(snapshot.platformRoles);
     setCachedAccounts(snapshot.cachedAccounts);
   }
 
@@ -181,6 +194,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       accessToken,
       refreshToken,
       user,
+      tenants,
+      currentTenantId,
+      currentTenantCode,
+      platformRoles,
+      isPlatformAdmin: platformRoles.includes("PLATFORM_ADMIN"),
       cachedAccounts,
       isAuthenticated: Boolean(accessToken && refreshToken),
       notice,
@@ -199,6 +217,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       accessToken,
       refreshToken,
       user,
+      tenants,
+      currentTenantId,
+      currentTenantCode,
+      platformRoles,
       cachedAccounts,
       notice,
       setTokens,

@@ -226,10 +226,35 @@ func (r *memoryTenantRepo) EnsureUserRole(_ context.Context, tenantID *uint64, u
 	return nil
 }
 
+func (r *memoryTenantRepo) RemoveUserRole(_ context.Context, tenantID *uint64, userID uint64, roleCode domain.RoleCode) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	roleID, ok := r.roleCodes[roleCode]
+	if !ok {
+		return repository.ErrRoleNotFound
+	}
+	delete(r.assignments, memoryTenantRoleKey(tenantID, userID, roleID))
+	return nil
+}
+
 func (r *memoryTenantRepo) ListRoleCodesByUserTenant(_ context.Context, userID uint64, tenantID uint64) ([]domain.RoleCode, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.roleCodesByUserTenantLocked(userID, tenantID), nil
+}
+
+func (r *memoryTenantRepo) ListPlatformRoleCodes(_ context.Context, userID uint64) ([]domain.RoleCode, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	roles := []domain.RoleCode{}
+	for _, assignment := range r.assignments {
+		if assignment.UserID == userID && assignment.TenantID == nil {
+			if role := r.roles[assignment.RoleID]; role != nil {
+				roles = append(roles, role.Code)
+			}
+		}
+	}
+	return roles, nil
 }
 
 func (r *memoryTenantRepo) HasRole(_ context.Context, userID uint64, tenantID *uint64, roleCode domain.RoleCode) (bool, error) {
@@ -243,6 +268,18 @@ func (r *memoryTenantRepo) HasRole(_ context.Context, userID uint64, tenantID *u
 	return ok, nil
 }
 
+func (r *memoryTenantRepo) CountTenantAdmins(_ context.Context, tenantID uint64) (int64, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var count int64
+	for _, member := range r.members {
+		if member.TenantID == tenantID && member.Status == domain.TenantUserStatusActive && hasMemoryRole(r, tenantID, member.UserID, domain.RoleTenantAdmin) {
+			count++
+		}
+	}
+	return count, nil
+}
+
 func (r *memoryTenantRepo) roleCodesByUserTenantLocked(userID uint64, tenantID uint64) []domain.RoleCode {
 	roles := []domain.RoleCode{}
 	for _, assignment := range r.assignments {
@@ -253,4 +290,13 @@ func (r *memoryTenantRepo) roleCodesByUserTenantLocked(userID uint64, tenantID u
 		}
 	}
 	return roles
+}
+
+func hasMemoryRole(r *memoryTenantRepo, tenantID uint64, userID uint64, roleCode domain.RoleCode) bool {
+	roleID, ok := r.roleCodes[roleCode]
+	if !ok {
+		return false
+	}
+	_, ok = r.assignments[memoryTenantRoleKey(&tenantID, userID, roleID)]
+	return ok
 }

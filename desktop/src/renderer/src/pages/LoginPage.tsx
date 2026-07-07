@@ -127,6 +127,11 @@ export function LoginPage() {
   async function finishSuccessfulLogin(data: LoginData) {
     await new Promise((resolve) => window.setTimeout(resolve, 450));
     auth.finishLogin(data);
+    const platformRoles = data.platform_roles ?? data.platformRoles ?? [];
+    if (platformRoles.includes("PLATFORM_ADMIN")) {
+      navigate("/platform", { replace: true });
+      return;
+    }
     if (!routeTenantCode && (data.tenants?.length ?? 0) > 1) {
       navigate("/select-tenant", { replace: true });
       return;

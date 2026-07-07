@@ -85,6 +85,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		"current_tenant_id":        result.Tenant.CurrentTenantID,
 		"current_tenant_code":      result.Tenant.CurrentTenantCode,
 		"tenants":                  result.Tenant.Tenants,
+		"platform_roles":           result.PlatformRoles,
 	})
 }
 

@@ -38,17 +38,27 @@ func main() {
 	if err := tenantSvc.BootstrapDefaultTenant(context.Background()); err != nil {
 		log.Fatalf("bootstrap tenants: %v", err)
 	}
+	auditRecorder := service.NoopAuditRecorder{}
+	platformTenantSvc := service.NewPlatformTenantService(tenantRepo, userRepo, auditRecorder)
+	platformTenantUserSvc := service.NewPlatformTenantUserService(tenantRepo, userRepo, auditRecorder)
+	platformRoleSvc := service.NewPlatformRoleService(tenantRepo, userRepo, auditRecorder)
+	platformDashboardSvc := service.NewPlatformDashboardService(tenantRepo, userRepo)
 	authSvc := service.NewAuthService(userRepo, authManager, tokenStore, cfg.RefreshTokenTTL, tenantSvc)
 	userSvc := service.NewUserService(userRepo, localStorage)
 	healthSvc := service.NewHealthService(cfg, db, nil, redisClient, nil)
 
 	router := handler.NewRouter(handler.Dependencies{
-		AuthService:   authSvc,
-		UserService:   userSvc,
-		TenantService: tenantSvc,
-		AuthManager:   authManager,
-		HealthService: healthSvc,
-		MaxAvatarSize: cfg.AvatarMaxSize,
+		AuthService:               authSvc,
+		UserService:               userSvc,
+		TenantService:             tenantSvc,
+		PlatformTenantService:     platformTenantSvc,
+		PlatformTenantUserService: platformTenantUserSvc,
+		PlatformRoleService:       platformRoleSvc,
+		PlatformDashboardService:  platformDashboardSvc,
+		PlatformRoleResolver:      tenantRepo,
+		AuthManager:               authManager,
+		HealthService:             healthSvc,
+		MaxAvatarSize:             cfg.AvatarMaxSize,
 	})
 	router.Static(cfg.AvatarURLPrefix, cfg.AvatarUploadDir)
 

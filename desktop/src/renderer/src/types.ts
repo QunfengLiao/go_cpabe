@@ -25,7 +25,12 @@ export interface TenantSummary {
   tenantName?: string;
   tenantCode?: string;
   status?: TenantStatus;
+  description?: string;
   roles?: TenantRole[];
+  user_count?: number;
+  tenant_admin_count?: number;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface ApiEnvelope<T> {
@@ -48,6 +53,8 @@ export interface LoginData {
   current_tenant_code?: string | null;
   currentTenantCode?: string | null;
   tenants?: TenantSummary[];
+  platform_roles?: TenantRole[];
+  platformRoles?: TenantRole[];
 }
 
 export interface SwitchTenantData {
@@ -71,6 +78,7 @@ export interface CachedAccount {
   nickname: string;
   role: UserRole;
   avatarUrl?: string;
+  platformRoles?: TenantRole[];
   lastLoginAt: number;
   expired?: boolean;
   loggedOut?: boolean;
@@ -81,5 +89,35 @@ export interface AuthStateSnapshot {
   accessToken: string;
   refreshToken: string;
   user: User | null;
+  tenants: TenantSummary[];
+  currentTenantId: string;
+  currentTenantCode: string;
+  platformRoles: TenantRole[];
   cachedAccounts: CachedAccount[];
+}
+
+export interface TenantMember {
+  user_id: number;
+  email: string;
+  nickname: string;
+  member_status: "active" | "disabled";
+  roles: TenantRole[];
+}
+
+export interface PlatformDashboard {
+  tenant_count: number;
+  enabled_tenant_count: number;
+  disabled_tenant_count: number;
+  user_count: number;
+  tenant_user_count: number;
+  tenant_admin_count: number;
+  audit_enabled: boolean;
+}
+
+export interface TenantAdminAssignment {
+  tenant_id: number;
+  user_id: number;
+  role: "TENANT_ADMIN";
+  assigned?: boolean;
+  removed?: boolean;
 }

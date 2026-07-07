@@ -1,60 +1,131 @@
-# 功能规格：[FEATURE NAME]
+# Feature Specification: [FEATURE NAME]
 
-**功能分支**：`[BRANCH NAME]`
-**创建日期**：[DATE]
-**状态**：草稿
-**输入**：用户描述：“$ARGUMENTS”
+**Feature Branch**: `[###-feature-name]`
 
-## 用户场景与测试
+**Created**: [DATE]
 
-### 主要用户故事
+**Status**: Draft
 
-[用简体中文描述主要用户旅程]
+**Input**: User description: "$ARGUMENTS"
 
-### 验收场景
+## User Scenarios & Testing *(mandatory)*
 
-1. **给定**[初始状态]，**当**[用户动作]，**则**[可观察结果]
-2. **给定**[初始状态]，**当**[用户动作]，**则**[可观察结果]
+<!--
+  IMPORTANT: User stories should be PRIORITIZED as user journeys ordered by importance.
+  Each user story/journey must be INDEPENDENTLY TESTABLE - meaning if you implement just ONE of them,
+  you should still have a viable MVP (Minimum Viable Product) that delivers value.
 
-### 边界情况
+  Assign priorities (P1, P2, P3, etc.) to each story, where P1 is the most critical.
+  Think of each story as a standalone slice of functionality that can be:
+  - Developed independently
+  - Tested independently
+  - Deployed independently
+  - Demonstrated to users independently
+-->
 
-- [边界条件]
-- [失败条件]
+### User Story 1 - [Brief Title] (Priority: P1)
 
-## 需求
+[Describe this user journey in plain language]
 
-### 功能需求
+**Why this priority**: [Explain the value and why it has this priority level]
 
-- **FR-001**：系统 MUST [具体能力]。
-- **FR-002**：系统 MUST [具体能力]。
-- **FR-003**：系统 MUST [具体能力]。
+**Independent Test**: [Describe how this can be tested independently - e.g., "Can be fully tested by [specific action] and delivers [specific value]"]
 
-### 宪章对齐
+**Acceptance Scenarios**:
 
-- **混合加密**：说明该功能是否涉及文件内容加密、DEK 封装，或两者都涉及；如涉及，
-  文件内容 MUST 使用 AES-GCM，RSA/CP-ABE MUST 只封装 DEK。
-- **真实 CP-ABE**：说明任何 CP-ABE 库交互；禁止模拟 CP-ABE 结果。
-- **可插拔算法**：说明需要的 `CryptoEngine` 行为，以及业务代码如何避免依赖具体算法。
-- **RSA 基线**：说明基准变量，避免声称 RSA 或 CP-ABE 在所有场景下都更优。
-- **策略可视化**：说明访问树/LSSS 的解析、校验、可视化和格式转换职责，不得把它们当作
-  密码学实现。
-- **可解释性**：说明用户可见的解密成功、解密失败、访问拒绝和性能解读原因。
-- **审计与基准**：说明该功能引入的记录、指标、成功/失败日志。
-- **语言规范**：本规格及派生文档 MUST 使用简体中文；代码标识符、路径、命令、API 路径、
-  JSON 字段、数据库表名、Go/TypeScript 类型名、第三方库和算法名称除外。
-- **AI 注释规范**：说明该功能涉及哪些核心业务代码和安全边界；后续实现 MUST 为安全、
-  认证、权限、Token、密码、文件上传、加密算法和访问控制等复杂逻辑补充必要中文注释，
-  并避免无意义逐行注释。
+1. **Given** [initial state], **When** [action], **Then** [expected outcome]
+2. **Given** [initial state], **When** [action], **Then** [expected outcome]
 
-### 关键实体
+---
 
-- **[实体 1]**：[含义和关键字段]
-- **[实体 2]**：[含义和关键字段]
+### User Story 2 - [Brief Title] (Priority: P2)
 
-## 成功标准
+[Describe this user journey in plain language]
 
-### 可衡量结果
+**Why this priority**: [Explain the value and why it has this priority level]
 
-- **SC-001**：[可观察结果]
-- **SC-002**：[可观察结果]
-- **SC-003**：[可观察结果]
+**Independent Test**: [Describe how this can be tested independently]
+
+**Acceptance Scenarios**:
+
+1. **Given** [initial state], **When** [action], **Then** [expected outcome]
+
+---
+
+### User Story 3 - [Brief Title] (Priority: P3)
+
+[Describe this user journey in plain language]
+
+**Why this priority**: [Explain the value and why it has this priority level]
+
+**Independent Test**: [Describe how this can be tested independently]
+
+**Acceptance Scenarios**:
+
+1. **Given** [initial state], **When** [action], **Then** [expected outcome]
+
+---
+
+[Add more user stories as needed, each with an assigned priority]
+
+### Edge Cases
+
+<!--
+  ACTION REQUIRED: The content in this section represents placeholders.
+  Fill them out with the right edge cases.
+-->
+
+- What happens when [boundary condition]?
+- How does system handle [error scenario]?
+
+## Requirements *(mandatory)*
+
+<!--
+  ACTION REQUIRED: The content in this section represents placeholders.
+  Fill them out with the right functional requirements.
+-->
+
+### Functional Requirements
+
+- **FR-001**: System MUST [specific capability, e.g., "allow users to create accounts"]
+- **FR-002**: System MUST [specific capability, e.g., "validate email addresses"]
+- **FR-003**: Users MUST be able to [key interaction, e.g., "reset their password"]
+- **FR-004**: System MUST [data requirement, e.g., "persist user preferences"]
+- **FR-005**: System MUST [behavior, e.g., "log all security events"]
+
+*Example of marking unclear requirements:*
+
+- **FR-006**: System MUST authenticate users via [NEEDS CLARIFICATION: auth method not specified - email/password, SSO, OAuth?]
+- **FR-007**: System MUST retain user data for [NEEDS CLARIFICATION: retention period not specified]
+
+### Key Entities *(include if feature involves data)*
+
+- **[Entity 1]**: [What it represents, key attributes without implementation]
+- **[Entity 2]**: [What it represents, relationships to other entities]
+
+## Success Criteria *(mandatory)*
+
+<!--
+  ACTION REQUIRED: Define measurable success criteria.
+  These must be technology-agnostic and measurable.
+-->
+
+### Measurable Outcomes
+
+- **SC-001**: [Measurable metric, e.g., "Users can complete account creation in under 2 minutes"]
+- **SC-002**: [Measurable metric, e.g., "System handles 1000 concurrent users without degradation"]
+- **SC-003**: [User satisfaction metric, e.g., "90% of users successfully complete primary task on first attempt"]
+- **SC-004**: [Business metric, e.g., "Reduce support tickets related to [X] by 50%"]
+
+## Assumptions
+
+<!--
+  ACTION REQUIRED: The content in this section represents placeholders.
+  Fill them out with the right assumptions based on reasonable defaults
+  chosen when the feature description did not specify certain details.
+-->
+
+- [Assumption about target users, e.g., "Users have stable internet connectivity"]
+- [Assumption about scope boundaries, e.g., "Mobile support is out of scope for v1"]
+- [Assumption about data/environment, e.g., "Existing authentication system will be reused"]
+- [Dependency on existing system/service, e.g., "Requires access to the existing user profile API"]

@@ -133,6 +133,20 @@ export function AppLayout() {
           <NavLink to="/profile" className={({ isActive }) => (isActive ? "nav-item nav-item-active" : "nav-item")}>
             当前用户
           </NavLink>
+          {auth.isPlatformAdmin && (
+            <>
+              <div className="nav-section-title">平台管理</div>
+              <NavLink end to="/platform" className={({ isActive }) => (isActive ? "nav-item nav-item-active" : "nav-item")}>
+                平台控制台
+              </NavLink>
+              <NavLink end to="/platform/tenants" className={({ isActive }) => (isActive ? "nav-item nav-item-active" : "nav-item")}>
+                租户列表
+              </NavLink>
+              <NavLink to="/platform/tenants/new" className={({ isActive }) => (isActive ? "nav-item nav-item-active" : "nav-item")}>
+                创建租户
+              </NavLink>
+            </>
+          )}
           <div className="nav-section-title">后续模块</div>
           {/* 这些入口先作为产品路线预告展示，避免用户误以为认证模块就是完整系统边界。 */}
           {upcomingModules.map((name) => (

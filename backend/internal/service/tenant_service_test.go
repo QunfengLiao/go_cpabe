@@ -26,11 +26,20 @@ func TestBootstrapDefaultTenantIsIdempotent(t *testing.T) {
 			t.Fatalf("bootstrap %d: %v", i, err)
 		}
 	}
-	if len(tenantRepo.tenants) != 1 {
-		t.Fatalf("expected one default tenant, got %d", len(tenantRepo.tenants))
+	if len(tenantRepo.tenants) != 4 {
+		t.Fatalf("expected demo tenants and default tenant, got %d", len(tenantRepo.tenants))
 	}
 	if len(tenantRepo.members) != 1 {
 		t.Fatalf("expected one tenant member, got %d", len(tenantRepo.members))
+	}
+	if _, ok := tenantRepo.tenantCodes["scnu"]; !ok {
+		t.Fatalf("missing scnu demo tenant")
+	}
+	if _, ok := tenantRepo.tenantCodes["sangfor"]; !ok {
+		t.Fatalf("missing sangfor demo tenant")
+	}
+	if _, ok := tenantRepo.tenantCodes["aia-hk"]; !ok {
+		t.Fatalf("missing aia-hk demo tenant")
 	}
 	context, err := svc.TenantContextForUser(ctx, 1)
 	if err != nil {

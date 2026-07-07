@@ -10,7 +10,10 @@ import (
 func TestSwitchTenantEndpoint(t *testing.T) {
 	app := newTestApp()
 	access, _ := registerAndLogin(t, app)
-	defaultTenant := app.tenantRepo.tenants[1]
+	defaultTenant, err := app.tenantRepo.FindTenantByCode(nil, domain.DefaultTenantCode)
+	if err != nil {
+		t.Fatalf("default tenant: %v", err)
+	}
 
 	ok := performJSON(app.router, http.MethodPost, "/api/v1/me/switch-tenant", map[string]any{"tenantId": defaultTenant.ID}, access)
 	if ok.Code != http.StatusOK {
@@ -27,7 +30,7 @@ func TestSwitchTenantEndpoint(t *testing.T) {
 		t.Fatalf("forbidden status=%d body=%s", forbidden.Code, forbidden.Body.String())
 	}
 
-	defaultTenant.Status = domain.TenantStatusDisabled
+	app.tenantRepo.tenants[defaultTenant.ID].Status = domain.TenantStatusDisabled
 	disabled := performJSON(app.router, http.MethodPost, "/api/v1/me/switch-tenant", map[string]any{"tenant_id": defaultTenant.ID}, access)
 	if disabled.Code != http.StatusForbidden || !bytesContains(disabled.Body.String(), "TENANT_DISABLED") {
 		t.Fatalf("disabled status=%d body=%s", disabled.Code, disabled.Body.String())

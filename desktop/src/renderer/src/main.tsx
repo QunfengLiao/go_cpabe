@@ -4,9 +4,15 @@ import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./auth/AuthContext";
 import { GuestOnly } from "./auth/GuestOnly";
 import { RequireAuth } from "./auth/RequireAuth";
+import { RequirePlatformAdmin } from "./auth/RequirePlatformAdmin";
 import { AppLayout } from "./components/AppLayout";
 import { GuestLayout } from "./components/GuestLayout";
 import { LoginPage } from "./pages/LoginPage";
+import { PlatformDashboardPage } from "./pages/PlatformDashboardPage";
+import { PlatformTenantCreatePage } from "./pages/PlatformTenantCreatePage";
+import { PlatformTenantDetailPage } from "./pages/PlatformTenantDetailPage";
+import { PlatformTenantListPage } from "./pages/PlatformTenantListPage";
+import { PlatformTenantUsersPage } from "./pages/PlatformTenantUsersPage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { SelectTenantPage } from "./pages/SelectTenantPage";
@@ -37,6 +43,13 @@ createRoot(document.getElementById("root")!).render(
               <Route element={<AppLayout />}>
                 <Route path="/profile" element={<ProfilePage />} />
                 <Route path="/profile/edit" element={<ProfilePage />} />
+                <Route element={<RequirePlatformAdmin />}>
+                  <Route path="/platform" element={<PlatformDashboardPage />} />
+                  <Route path="/platform/tenants" element={<PlatformTenantListPage />} />
+                  <Route path="/platform/tenants/new" element={<PlatformTenantCreatePage />} />
+                  <Route path="/platform/tenants/:tenantId" element={<PlatformTenantDetailPage />} />
+                  <Route path="/platform/tenants/:tenantId/users" element={<PlatformTenantUsersPage />} />
+                </Route>
                 <Route path="*" element={<Navigate to="/profile" replace />} />
               </Route>
             </Route>
