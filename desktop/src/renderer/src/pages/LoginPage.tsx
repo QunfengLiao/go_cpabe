@@ -1,12 +1,14 @@
 import { FormEvent, PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { login } from "../api/auth";
+import { clearTenantStartupSession, getCurrentTenantCode, saveLastTenantCode } from "../api/authStorage";
 import { getCredentialByEmail, getSavedEmails, removeCredential, saveCredential } from "../api/credentialStore";
 import { ApiError } from "../api/request";
 import { useAuth } from "../auth/AuthContext";
 import { Alert } from "../components/Alert";
 import { LoginRobot, type LoginRobotState } from "../components/LoginRobot";
+import { getTenantLoginConfig } from "../config/tenantLoginConfigs";
 import type { CachedAccount, LoginData } from "../types";
 import { avatarInitial, resolveAvatarURL } from "../utils/avatar";
 
@@ -14,6 +16,10 @@ export function LoginPage() {
   const auth = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const { tenantCode } = useParams();
+  const tenantConfig = getTenantLoginConfig(tenantCode);
+  const routeTenantCode = tenantCode && tenantConfig ? tenantCode : undefined;
+  const invalidTenantCode = Boolean(tenantCode && !tenantConfig);
   const searchParams = new URLSearchParams(location.search);
   const isAddAccountMode = searchParams.get("mode") === "add-account";
   const cardRef = useRef<HTMLFormElement | null>(null);
@@ -27,7 +33,7 @@ export function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loginSucceeded, setLoginSucceeded] = useState(false);
   const [eyeOffset, setEyeOffset] = useState({ x: 0, y: 0 });
-  const [showPasswordLogin, setShowPasswordLogin] = useState(isAddAccountMode || auth.cachedAccounts.length === 0);
+  const [showPasswordLogin, setShowPasswordLogin] = useState(Boolean(routeTenantCode) || isAddAccountMode || auth.cachedAccounts.length === 0);
   const [switchingAccountId, setSwitchingAccountId] = useState("");
   const [savedCredentialEmails, setSavedCredentialEmails] = useState<string[]>([]);
   const [credentialSuggestionsOpen, setCredentialSuggestionsOpen] = useState(false);
@@ -46,10 +52,21 @@ export function LoginPage() {
   }, [auth]);
 
   useEffect(() => {
-    if (isAddAccountMode || savedAccounts.length === 0) {
+    if (!routeTenantCode) return;
+    const currentTenantCode = getCurrentTenantCode();
+    if (currentTenantCode && currentTenantCode !== routeTenantCode) {
+      // 租户登录入口代表明确的安全边界，不能沿用其他租户留下的 token 和用户上下文。
+      clearTenantStartupSession();
+      auth.clearAuth();
+    }
+    saveLastTenantCode(routeTenantCode);
+  }, [auth.clearAuth, routeTenantCode]);
+
+  useEffect(() => {
+    if (routeTenantCode || isAddAccountMode || savedAccounts.length === 0) {
       setShowPasswordLogin(true);
     }
-  }, [isAddAccountMode, savedAccounts.length]);
+  }, [isAddAccountMode, routeTenantCode, savedAccounts.length]);
 
   useEffect(() => {
     let cancelled = false;
@@ -76,10 +93,6 @@ export function LoginPage() {
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, []);
 
-  if (auth.isAuthenticated && !isAddAccountMode) {
-    return <Navigate to="/profile" replace />;
-  }
-
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
     setError("");
@@ -90,9 +103,13 @@ export function LoginPage() {
       setError("请输入邮箱和密码");
       return;
     }
+    if (invalidTenantCode) {
+      setError("租户不存在或暂未启用，请返回租户选择页");
+      return;
+    }
     setLoading(true);
     try {
-      const data = await login({ email: normalizedEmail, password });
+      const data = await login({ email: normalizedEmail, password, tenantCode: routeTenantCode });
       setLoginSucceeded(true);
       const savedPassword = await getCredentialByEmail(normalizedEmail);
       if (savedPassword && savedPassword === password) {
@@ -110,6 +127,10 @@ export function LoginPage() {
   async function finishSuccessfulLogin(data: LoginData) {
     await new Promise((resolve) => window.setTimeout(resolve, 450));
     auth.finishLogin(data);
+    if (!routeTenantCode && (data.tenants?.length ?? 0) > 1) {
+      navigate("/select-tenant", { replace: true });
+      return;
+    }
     navigate("/profile", { replace: true });
   }
 
@@ -260,6 +281,16 @@ export function LoginPage() {
     });
   }
 
+  const loginDescription = invalidTenantCode
+    ? "当前租户入口不可用"
+    : tenantConfig?.code
+      ? tenantConfig.subtitle
+      : showAccountPicker
+        ? "选择本机登录过的账号，系统会尝试恢复登录态"
+        : isAddAccountMode
+          ? "登录另一个账号，原有账号记录会继续保留"
+          : "进入你的加密文件共享工作台";
+
   return (
     <form
       className="auth-card"
@@ -276,15 +307,10 @@ export function LoginPage() {
       <LoginRobot state={robotState} eyeOffset={eyeOffset} />
       <div className="form-title">
         <h2>{showAccountPicker ? "欢迎回来" : isAddAccountMode ? "添加账号" : "登录"}</h2>
-        <p>
-          {showAccountPicker
-            ? "选择本机登录过的账号，系统会尝试恢复登录态"
-            : isAddAccountMode
-              ? "登录另一个账号，原有账号记录会继续保留"
-              : "进入你的加密文件共享工作台"}
-        </p>
+        <p>{loginDescription}</p>
       </div>
       <Alert type="success" message={notice} />
+      <Alert type="error" message={invalidTenantCode ? "租户不存在或暂未启用，请检查登录链接或重新选择租户。" : ""} />
       <Alert type="error" message={error} />
 
       {showAccountPicker ? (
@@ -327,11 +353,14 @@ export function LoginPage() {
           <button className="secondary-action auth-wide-action" onClick={onUseOtherAccount} type="button">
             使用其他账号登录
           </button>
+          <Link className="tenant-select-link" to="/select-tenant">
+            切换租户入口
+          </Link>
           <p className="form-tip">本机只保存账号展示信息，不保存密码。</p>
         </>
       ) : (
         <>
-          {!isAddAccountMode && savedAccounts.length > 0 && (
+          {!routeTenantCode && !isAddAccountMode && savedAccounts.length > 0 && (
             <button className="auth-back-button" onClick={onBackToAccountPicker} type="button">
               ← 返回账号列表
             </button>
@@ -384,12 +413,15 @@ export function LoginPage() {
               </button>
             </div>
           </label>
-          <button className="primary-action" type="submit" disabled={loading}>
-            {loading ? "登录中..." : "登录"}
+          <button className="primary-action" type="submit" disabled={loading || invalidTenantCode}>
+            {loading ? "登录中..." : tenantConfig?.buttonText ?? "登录"}
           </button>
           <p className="form-tip">
             还没有账号？<Link to={isAddAccountMode ? "/register?mode=add-account" : "/register"}>创建新账号</Link>
           </p>
+          <Link className="tenant-select-link" to="/select-tenant">
+            选择其他租户入口
+          </Link>
         </>
       )}
       {pendingRemember &&

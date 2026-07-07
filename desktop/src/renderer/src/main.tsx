@@ -9,8 +9,13 @@ import { GuestLayout } from "./components/GuestLayout";
 import { LoginPage } from "./pages/LoginPage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { RegisterPage } from "./pages/RegisterPage";
+import { SelectTenantPage } from "./pages/SelectTenantPage";
+import { StartupRedirect } from "./pages/StartupRedirect";
+import { prepareStartupTenant } from "./tenantStartup";
 import { ThemeProvider } from "./theme/ThemeProvider";
 import "./styles.css";
+
+prepareStartupTenant();
 
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
@@ -18,11 +23,13 @@ createRoot(document.getElementById("root")!).render(
       <HashRouter>
         <AuthProvider>
           <Routes>
-            <Route index element={<Navigate to="/profile" replace />} />
+            <Route index element={<StartupRedirect />} />
+            <Route path="/select-tenant" element={<SelectTenantPage />} />
             {/* 认证页和应用页使用不同布局，避免游客入口在登录后仍占据主要导航。 */}
             <Route element={<GuestOnly />}>
               <Route element={<GuestLayout />}>
                 <Route path="/login" element={<LoginPage />} />
+                <Route path="/login/:tenantCode" element={<LoginPage />} />
                 <Route path="/register" element={<RegisterPage />} />
               </Route>
             </Route>

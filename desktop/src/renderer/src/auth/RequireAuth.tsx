@@ -11,7 +11,7 @@ export function RequireAuth() {
     if (hasSwitchableAccount) {
       return <AccountSwitchPage />;
     }
-    return <Navigate to="/login" replace state={{ from: location }} />;
+    return <Navigate to="/select-tenant" replace state={{ from: location }} />;
   }
 
   return <Outlet />;

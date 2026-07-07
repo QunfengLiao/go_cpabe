@@ -14,6 +14,20 @@ export interface User {
   updated_at?: string;
 }
 
+export type TenantRole = "PLATFORM_ADMIN" | "TENANT_ADMIN" | "DO" | "DU";
+export type TenantStatus = "enabled" | "disabled";
+
+export interface TenantSummary {
+  tenant_id: number;
+  tenant_name: string;
+  tenant_code: string;
+  tenantId?: number;
+  tenantName?: string;
+  tenantCode?: string;
+  status?: TenantStatus;
+  roles?: TenantRole[];
+}
+
 export interface ApiEnvelope<T> {
   code: string | number;
   message?: string;
@@ -29,6 +43,18 @@ export interface LoginData {
   refresh_token_expires_in: number;
   token_type: string;
   user: User;
+  current_tenant_id?: number | null;
+  currentTenantId?: number | null;
+  current_tenant_code?: string | null;
+  currentTenantCode?: string | null;
+  tenants?: TenantSummary[];
+}
+
+export interface SwitchTenantData {
+  current_tenant_id: number;
+  tenant?: TenantSummary;
+  roles?: TenantRole[];
+  menus?: unknown[];
 }
 
 export interface RefreshData {

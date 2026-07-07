@@ -1,4 +1,4 @@
-import type { AuthStateSnapshot, CachedAccount, LoginData, RefreshData, User } from "../types";
+import type { AuthStateSnapshot, CachedAccount, LoginData, RefreshData, TenantSummary, User } from "../types";
 import {
   clearAllTokens,
   clearCurrentTokens,
@@ -13,6 +13,10 @@ import {
 
 const USER_KEY = "go_cpabe_user";
 const CURRENT_USER_ID_KEY = "go_cpabe_current_user_id";
+const CURRENT_TENANT_ID_KEY = "go_cpabe_current_tenant_id";
+const CURRENT_TENANT_CODE_KEY = "go_cpabe_current_tenant_code";
+const LAST_TENANT_CODE_KEY = "go_cpabe_last_tenant_code";
+const TENANTS_KEY = "go_cpabe_tenants";
 const CACHED_ACCOUNTS_KEY = "go_cpabe_cached_accounts";
 
 type LegacyCachedAccount = Partial<CachedAccount> & {
@@ -40,6 +44,19 @@ function toCachedAccount(user: User): CachedAccount {
     lastLoginAt: Date.now(),
     expired: false,
     loggedOut: false
+  };
+}
+
+function normalizeTenant(tenant: TenantSummary): TenantSummary {
+  const tenantId = tenant.tenant_id ?? tenant.tenantId ?? 0;
+  const tenantName = tenant.tenant_name ?? tenant.tenantName ?? "";
+  const tenantCode = tenant.tenant_code ?? tenant.tenantCode ?? "";
+  return {
+    tenant_id: tenantId,
+    tenant_name: tenantName,
+    tenant_code: tenantCode,
+    status: tenant.status,
+    roles: tenant.roles ?? []
   };
 }
 
@@ -115,6 +132,52 @@ export function getCurrentUserId(): string {
   return localStorage.getItem(CURRENT_USER_ID_KEY) ?? "";
 }
 
+export function getCurrentTenantId(): string {
+  return localStorage.getItem(CURRENT_TENANT_ID_KEY) ?? "";
+}
+
+export function getCurrentTenantCode(): string {
+  return localStorage.getItem(CURRENT_TENANT_CODE_KEY) ?? "";
+}
+
+export function getLastTenantCode(): string {
+  return localStorage.getItem(LAST_TENANT_CODE_KEY) ?? "";
+}
+
+export function saveLastTenantCode(tenantCode: string): void {
+  const normalizedCode = tenantCode.trim();
+  if (normalizedCode) {
+    localStorage.setItem(LAST_TENANT_CODE_KEY, normalizedCode);
+  } else {
+    localStorage.removeItem(LAST_TENANT_CODE_KEY);
+  }
+}
+
+export function getStoredTenants(): TenantSummary[] {
+  const raw = localStorage.getItem(TENANTS_KEY);
+  if (!raw) return [];
+  try {
+    const tenants = JSON.parse(raw) as TenantSummary[];
+    return Array.isArray(tenants) ? tenants.map(normalizeTenant) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveCurrentTenant(tenantId: number | string, tenantCode?: string | null): void {
+  const normalizedId = String(tenantId || "");
+  const normalizedCode = String(tenantCode || "").trim();
+  if (normalizedId) {
+    localStorage.setItem(CURRENT_TENANT_ID_KEY, normalizedId);
+  } else {
+    localStorage.removeItem(CURRENT_TENANT_ID_KEY);
+  }
+  if (normalizedCode) {
+    localStorage.setItem(CURRENT_TENANT_CODE_KEY, normalizedCode);
+    localStorage.setItem(LAST_TENANT_CODE_KEY, normalizedCode);
+  }
+}
+
 export function getCurrentCachedAccount(): CachedAccount | null {
   const currentUserId = getCurrentUserId();
   return getCachedAccounts().find((account) => account.userId === currentUserId) ?? null;
@@ -155,9 +218,23 @@ export function saveTokens(accessToken: string, refreshToken?: string): void {
 export function saveLoginSession(data: LoginData): AuthStateSnapshot {
   const account = toCachedAccount(data.user);
   const expiresAt = refreshTokenExpiresAt(data.refresh_token_expires_in);
+  const tenants = (data.tenants ?? []).map(normalizeTenant);
+  const currentTenantID = data.current_tenant_id ?? data.currentTenantId ?? null;
+  const currentTenantCode =
+    data.current_tenant_code ??
+    data.currentTenantCode ??
+    tenants.find((tenant) => tenant.tenant_id === currentTenantID)?.tenant_code ??
+    null;
   saveTokens(data.access_token, data.refresh_token);
   saveAccountRefreshToken(account.userId, data.refresh_token, expiresAt);
   saveUser(data.user);
+  localStorage.setItem(TENANTS_KEY, JSON.stringify(tenants));
+  if (currentTenantID) {
+    saveCurrentTenant(currentTenantID, currentTenantCode);
+  } else {
+    localStorage.removeItem(CURRENT_TENANT_ID_KEY);
+    localStorage.removeItem(CURRENT_TENANT_CODE_KEY);
+  }
   localStorage.setItem(CURRENT_USER_ID_KEY, account.userId);
   const cachedAccounts = upsertCachedAccount(account);
   return {
@@ -255,6 +332,20 @@ export function clearCurrentSession(): void {
   clearCurrentTokens();
   localStorage.removeItem(USER_KEY);
   localStorage.removeItem(CURRENT_USER_ID_KEY);
+  localStorage.removeItem(CURRENT_TENANT_ID_KEY);
+  localStorage.removeItem(CURRENT_TENANT_CODE_KEY);
+  localStorage.removeItem(TENANTS_KEY);
+  clearSessionAuthState();
+}
+
+export function clearTenantStartupSession(): void {
+  clearAllTokens();
+  localStorage.removeItem(USER_KEY);
+  localStorage.removeItem(CURRENT_USER_ID_KEY);
+  localStorage.removeItem(CURRENT_TENANT_ID_KEY);
+  localStorage.removeItem(CURRENT_TENANT_CODE_KEY);
+  localStorage.removeItem(TENANTS_KEY);
+  clearSessionAuthState();
 }
 
 export function expireCurrentSession(): CachedAccount[] {
@@ -268,4 +359,17 @@ export function clearStoredAuth(): void {
   clearCurrentSession();
   localStorage.removeItem(CACHED_ACCOUNTS_KEY);
   clearAllTokens();
+}
+
+function clearSessionAuthState(): void {
+  const keysToRemove = ["go_cpabe_last_route", "go_cpabe_login_state", "lastRoute"];
+  for (const key of keysToRemove) {
+    sessionStorage.removeItem(key);
+  }
+  for (let index = sessionStorage.length - 1; index >= 0; index -= 1) {
+    const key = sessionStorage.key(index);
+    if (key?.startsWith("go_cpabe_auth_") || key?.startsWith("go_cpabe_tenant_")) {
+      sessionStorage.removeItem(key);
+    }
+  }
 }

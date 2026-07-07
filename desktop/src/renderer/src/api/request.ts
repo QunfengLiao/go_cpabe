@@ -2,6 +2,7 @@ import type { ApiEnvelope, RefreshData } from "../types";
 import {
   expireCurrentSession,
   getCurrentCachedAccount,
+  getCurrentTenantId,
   getRefreshToken,
   saveRefreshedSession,
   saveTokens,
@@ -63,6 +64,10 @@ function buildOptions(options: RequestOptions): RequestInit {
   const token = getAccessToken();
   if (!options.skipAuth && token) {
     headers.set("Authorization", `Bearer ${token}`);
+  }
+  const tenantId = getCurrentTenantId();
+  if (!options.skipAuth && tenantId && !headers.has("X-Tenant-Id")) {
+    headers.set("X-Tenant-Id", tenantId);
   }
   return {
     ...options,

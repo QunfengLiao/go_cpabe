@@ -128,6 +128,20 @@ npm run build
 npm run dev
 ```
 
+桌面端与网页预览命令已显式区分：
+
+```bash
+# 启动 Electron 桌面应用
+npm run dev:electron
+npm run dev:electron:sangfor
+
+# 仅启动 Vite 网页预览
+npm run dev:web
+npm run dev:web:sangfor
+```
+
+兼容短命令 `npm run dev`、`npm run dev:sangfor` 默认启动 Electron 桌面应用；需要只看网页时请使用 `dev:web:*`。
+
 启动后可以看到基础首页，页面展示项目名称和后端连接状态占位。后续业务页面应复用 `desktop/src/renderer/api` 下的统一请求封装。
 
 ## 测试与验证

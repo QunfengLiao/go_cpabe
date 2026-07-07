@@ -12,6 +12,7 @@ export interface RegisterPayload {
 export interface LoginPayload {
   email: string;
   password: string;
+  tenantCode?: string;
 }
 
 export function register(payload: RegisterPayload): Promise<{ user: User }> {
