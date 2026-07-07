@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { register } from "../api/auth";
 import { ApiError } from "../api/request";
 import { Alert } from "../components/Alert";
@@ -25,6 +25,8 @@ const roleOptions: Array<{
 
 export function RegisterPage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const isAddAccountMode = new URLSearchParams(location.search).get("mode") === "add-account";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -61,7 +63,7 @@ export function RegisterPage() {
         nickname: nickname.trim(),
         role
       });
-      navigate("/login", { replace: true, state: { notice: "注册成功，请登录" } });
+      navigate(isAddAccountMode ? "/login?mode=add-account" : "/login", { replace: true, state: { notice: "注册成功，请登录" } });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "注册失败，请稍后重试");
     } finally {
@@ -114,7 +116,7 @@ export function RegisterPage() {
         {loading ? "注册中..." : "注册"}
       </button>
       <p className="form-tip">
-        已有账号？<Link to="/login">返回登录</Link>
+        已有账号？<Link to={isAddAccountMode ? "/login?mode=add-account" : "/login"}>返回登录</Link>
       </p>
     </form>
   );

@@ -5,8 +5,10 @@ import {
   clearCurrentSession,
   expireCurrentSession,
   getCachedAccounts,
+  getCachedAccountRefreshToken,
   getAuthSnapshot,
   getRefreshToken,
+  hasCachedAccountToken,
   markCachedAccountExpired,
   markCachedAccountLoggedOut,
   removeCachedAccount,
@@ -31,6 +33,7 @@ interface AuthContextValue {
   setTokens: (accessToken: string, refreshToken: string) => void;
   setUser: (user: User | null) => void;
   finishLogin: (data: LoginData) => void;
+  hasAccountSession: (accountId: string) => boolean;
   switchAccount: (accountId: string) => Promise<void>;
   removeAccount: (accountId: string) => Promise<void>;
   clearAuth: (message?: string) => void;
@@ -82,10 +85,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     syncSnapshot();
   }, []);
 
+  const hasAccountSession = useCallback((accountId: string) => {
+    const account = getCachedAccounts().find((item) => item.userId === accountId);
+    return Boolean(account && !account.expired && !account.loggedOut && hasCachedAccountToken(accountId));
+  }, []);
+
   const switchAccount = useCallback(
     async (accountId: string) => {
       const account = getCachedAccounts().find((item) => item.userId === accountId);
-      if (!account || !account.refreshToken || account.expired || account.loggedOut) {
+      const accountRefreshToken = account ? getCachedAccountRefreshToken(account.userId) : "";
+      if (!account || !accountRefreshToken || account.expired || account.loggedOut) {
         if (account) {
           setCachedAccounts(markCachedAccountExpired(account.userId));
         }
@@ -93,10 +102,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       try {
-        const data = await refreshTokenRequest(account.refreshToken);
-        // refresh_token 权限较高，当前仅为开发阶段把多个账号的 refresh_token 放在 localStorage，
-        // 生产环境更推荐 HttpOnly Cookie、桌面端安全存储或系统 Keychain；这里也绝不展示或打印 token。
-        saveRefreshedSession(account, data, account.user ?? null);
+        const data = await refreshTokenRequest(accountRefreshToken);
+        saveRefreshedSession(account, data);
         syncSnapshot();
 
         try {
@@ -129,7 +136,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       clearCurrentSession();
       syncSnapshot();
-      const hasSwitchableAccount = getCachedAccounts().some((account) => account.refreshToken && !account.expired && !account.loggedOut);
+      const hasSwitchableAccount = getCachedAccounts().some((account) => hasCachedAccountToken(account.userId) && !account.expired && !account.loggedOut);
       navigate(hasSwitchableAccount ? "/profile" : "/login", { replace: true });
     }
   }, [currentUserId, navigate]);
@@ -143,9 +150,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await logout();
         removeCachedAccount(accountId);
       } else {
-        if (account.refreshToken) {
+        const accountRefreshToken = getCachedAccountRefreshToken(account.userId);
+        if (accountRefreshToken) {
           try {
-            await logoutRequest(account.refreshToken);
+            await logoutRequest(accountRefreshToken);
           } catch {
             // 非当前账号的远端退出失败只影响服务端 token 回收，本地移除仍按用户显式操作执行。
           }
@@ -179,6 +187,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setTokens,
       setUser,
       finishLogin,
+      hasAccountSession,
       switchAccount,
       removeAccount,
       clearAuth,
@@ -195,6 +204,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setTokens,
       setUser,
       finishLogin,
+      hasAccountSession,
       switchAccount,
       removeAccount,
       clearAuth,

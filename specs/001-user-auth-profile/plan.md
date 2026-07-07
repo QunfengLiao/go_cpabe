@@ -9,6 +9,10 @@
 
 技术方案采用清晰分层：Handler 只处理请求绑定、基础校验和响应；Service 负责业务编排；Repository 负责 `users` 表读写；Auth 组件负责 Token 签发、解析和类型校验；Redis Token Store 负责刷新登录态；Middleware 只接受 Access Token；Storage 组件负责头像保存并预留对象存储扩展。
 
+桌面端补充本机账号记忆能力：历史账号展示缓存只保存 `userId`、邮箱、昵称、头像和上次登录时间；刷新凭证通过独立 Token 存储适配层管理，当前为开发阶段 localStorage MVP，后续可整体替换为 Electron safeStorage、keytar 或系统凭据存储。登录页在本机有历史账号时优先展示账号选择，并在刷新失败后自动回退到邮箱预填的密码登录。
+
+桌面端补充“记住密码 / 邮箱联想回填”能力：登录成功后由用户显式选择是否记住密码；记住后通过主进程 `credentialStore` 调用 Electron `safeStorage` 加密保存到用户数据目录，渲染层只通过 preload 暴露的最小 IPC 能力访问邮箱列表和单个邮箱凭据。该能力不复用 `cachedAccounts` 或 Token 存储，避免把密码和展示缓存、刷新凭证混在一起。
+
 ## 技术上下文
 
 **语言/版本**：Go、TypeScript
@@ -18,6 +22,8 @@
 **目标项目**：Electron 桌面端 + Go 后端的 CP-ABE 加密文件共享系统
 **性能目标**：认证接口在普通开发环境中应保持用户可感知快速响应；头像上传限制 2MB；本功能不产生算法 Benchmark
 **约束**：密码不得明文保存；JWT secret 不能硬编码；Refresh Token 不在 Redis 明文保存；普通业务接口拒绝 Refresh Token；刷新接口拒绝 Access Token；用户响应不得泄露 `password_hash` 与 `avatar_object_key`
+**桌面端存储约束**：本机历史账号缓存不得保存密码或刷新凭证；刷新凭证暂由独立 Token 存储模块封装，生产环境必须替换为系统级安全存储
+**本机凭据约束**：记住密码必须通过独立 `credentialStore` 和系统级安全存储完成；不得把密码写入 localStorage、IndexedDB、日志、普通配置文件或账号展示缓存
 **规模/范围**：完成用户认证与资料基础模块；不实现文件加密、访问树、密钥管理、完整 RBAC、管理员后台和多端会话管理页面
 
 ## 宪章检查
@@ -33,6 +39,8 @@
 - 模块边界：User 模块内部按 Handler、Service、Repository、Auth、Token Store、Middleware、Storage 分层，避免 Handler 写数据库或复杂业务。
 - 范围纪律：本阶段只交付用户认证与资料基础能力，不提前实现高级 CP-ABE、密钥管理、完整 RBAC 或对象存储。
 - 语言规范：本计划以及 `research.md`、`data-model.md`、`quickstart.md`、`contracts/` 文档均使用简体中文。
+- 本机账号记忆：该增强只复用现有刷新接口和前端状态管理，不新增后端业务逻辑；refreshToken 不混入展示缓存，避免账号列表泄露敏感凭证。
+- 本机凭据回填：该增强只影响桌面端本机体验，不改变服务端认证流程；密码只在用户明确同意后通过 Electron `safeStorage` 加密保存，无法安全存储时不得降级为明文保存。
 
 **初始关卡结果**：通过，无宪章偏离。
 

@@ -45,10 +45,7 @@ export interface CachedAccount {
   nickname: string;
   role: UserRole;
   avatarUrl?: string;
-  user?: User;
-  refreshToken: string;
-  refreshTokenExpiresAt?: number;
-  lastActiveAt: number;
+  lastLoginAt: number;
   expired?: boolean;
   loggedOut?: boolean;
 }

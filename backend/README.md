@@ -38,6 +38,25 @@ go test ./...
 go run ./cmd/server
 ```
 
+## 管理员初始化
+
+管理员账号不能通过公开注册接口创建，必须走本地受控初始化命令写入 `users` 表。
+推荐通过环境变量传入密码，避免明文密码进入命令历史。
+
+PowerShell 示例：
+
+```powershell
+$env:ADMIN_PASSWORD = "Admin@123456"
+go run ./cmd/admin create -email admin@example.com -nickname 管理员
+Remove-Item Env:ADMIN_PASSWORD
+```
+
+也可以显式传入 `-password`，但不推荐在共享机器或生产环境使用：
+
+```bash
+go run ./cmd/admin create -email admin@example.com -password Admin@123456 -nickname 管理员
+```
+
 ## 验证
 
 服务启动后可运行：

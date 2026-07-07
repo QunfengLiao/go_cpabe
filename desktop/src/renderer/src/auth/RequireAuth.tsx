@@ -7,7 +7,7 @@ export function RequireAuth() {
   const location = useLocation();
 
   if (!auth.isAuthenticated) {
-    const hasSwitchableAccount = auth.cachedAccounts.some((account) => account.refreshToken && !account.expired && !account.loggedOut);
+    const hasSwitchableAccount = auth.cachedAccounts.some((account) => auth.hasAccountSession(account.userId));
     if (hasSwitchableAccount) {
       return <AccountSwitchPage />;
     }

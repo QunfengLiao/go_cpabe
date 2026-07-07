@@ -26,7 +26,7 @@ export function AppLayout() {
   const sortedAccounts = useMemo(() => [...auth.cachedAccounts].sort((left, right) => {
     if (left.userId === auth.currentUserId) return -1;
     if (right.userId === auth.currentUserId) return 1;
-    return right.lastActiveAt - left.lastActiveAt;
+    return right.lastLoginAt - left.lastLoginAt;
   }), [auth.cachedAccounts, auth.currentUserId]);
 
   function updateAccountMenuPosition() {
@@ -102,6 +102,7 @@ export function AppLayout() {
       <AccountMenu
         accounts={sortedAccounts}
         currentUserId={auth.currentUserId}
+        hasAccountSession={auth.hasAccountSession}
         menuRef={accountMenuRef}
         message={accountMessage}
         onAddAccount={() => {
@@ -193,6 +194,7 @@ export function AppLayout() {
 function AccountMenu({
   accounts,
   currentUserId,
+  hasAccountSession,
   menuRef,
   message,
   onAddAccount,
@@ -205,6 +207,7 @@ function AccountMenu({
 }: {
   accounts: CachedAccount[];
   currentUserId: string;
+  hasAccountSession: (accountId: string) => boolean;
   menuRef: RefObject<HTMLDivElement | null>;
   message: string;
   onAddAccount: () => void;
@@ -228,7 +231,7 @@ function AccountMenu({
         {accounts.map((account) => {
           const accountAvatar = resolveAvatarURL(account.avatarUrl);
           const isCurrent = account.userId === currentUserId;
-          const unavailable = !account.refreshToken || account.expired || account.loggedOut;
+          const unavailable = !hasAccountSession(account.userId);
           return (
             <div className={`account-row${isCurrent ? " account-row-current" : ""}`} key={account.userId}>
               <button

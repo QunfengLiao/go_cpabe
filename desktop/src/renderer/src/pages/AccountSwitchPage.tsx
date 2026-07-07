@@ -11,7 +11,7 @@ export function AccountSwitchPage() {
   const [error, setError] = useState(auth.notice);
   const [switchingId, setSwitchingId] = useState("");
   const accounts = auth.cachedAccounts;
-  const switchableAccounts = accounts.filter((account) => account.refreshToken && !account.expired && !account.loggedOut);
+  const switchableAccounts = accounts.filter((account) => auth.hasAccountSession(account.userId));
 
   async function onSwitch(accountId: string) {
     setError("");
@@ -37,7 +37,7 @@ export function AccountSwitchPage() {
           <div className="account-switch-list">
             {accounts.map((account) => {
               const avatarURL = resolveAvatarURL(account.avatarUrl);
-              const unavailable = !account.refreshToken || account.expired || account.loggedOut;
+              const unavailable = !auth.hasAccountSession(account.userId);
               return (
                 <button
                   className="account-switch-item"

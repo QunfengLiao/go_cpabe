@@ -1,5 +1,13 @@
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, ipcMain } from "electron";
 import path from "node:path";
+import { getCredentialByEmail, getSavedEmails, removeCredential, saveCredential } from "./credentialStore";
+
+function registerCredentialHandlers(): void {
+  ipcMain.handle("credential:save", (_event, email: string, password: string) => saveCredential(email, password));
+  ipcMain.handle("credential:get-saved-emails", () => getSavedEmails());
+  ipcMain.handle("credential:get-by-email", (_event, email: string) => getCredentialByEmail(email));
+  ipcMain.handle("credential:remove", (_event, email: string) => removeCredential(email));
+}
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -19,6 +27,7 @@ function createWindow(): void {
 }
 
 void app.whenReady().then(() => {
+  registerCredentialHandlers();
   createWindow();
 
   app.on("activate", () => {

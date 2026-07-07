@@ -112,6 +112,38 @@
 - [X] T064 检查所有用户响应不包含 `password_hash` 和 `avatar_object_key` 于 `backend/internal/handler/`
 - [X] T065 检查本功能未引入文件加密、CP-ABE 模拟、Benchmark 结论或完整 RBAC 于 `specs/001-user-auth-profile/plan.md`
 
+## 第 7 阶段：桌面端本机账号记忆
+
+**目标**：登录页支持本机历史账号列表、快捷恢复登录态、刷新失败后回退密码登录，以及从本机移除账号记录。
+
+- [X] T066 [US2] 定义本机账号记忆规格和安全边界于 `specs/001-user-auth-profile/spec.md`
+- [X] T067 [US2] 新增独立 Token 存储适配层于 `desktop/src/renderer/src/api/tokenStorage.ts`
+- [X] T068 [US2] 调整账号展示缓存，确保 `cachedAccounts` 不保存密码和 refreshToken 于 `desktop/src/renderer/src/api/authStorage.ts`
+- [X] T069 [US2] 扩展认证上下文，支持通过历史账号 refreshToken 恢复登录态于 `desktop/src/renderer/src/auth/AuthContext.tsx`
+- [X] T070 [US2] 在登录页新增“欢迎回来 / 选择账号”界面和刷新失败回退密码登录能力于 `desktop/src/renderer/src/pages/LoginPage.tsx`
+- [X] T071 [US2] 补充账号列表样式并运行桌面端构建验证于 `desktop/src/renderer/src/styles.css`
+
+## 第 8 阶段：桌面端记住密码与邮箱联想
+
+**目标**：登录成功后由用户选择是否记住密码；下次登录时支持邮箱联想，并在选择邮箱后通过安全凭据存储回填密码。
+
+- [X] T072 [US2] 更新记住密码规格和安全边界于 `specs/001-user-auth-profile/spec.md`
+- [X] T073 [US2] 新增主进程 `credentialStore`，使用 Electron `safeStorage` 加密保存本机凭据于 `desktop/src/main/credentialStore.ts`
+- [X] T074 [US2] 通过 IPC 和 preload 暴露最小凭据访问接口于 `desktop/src/main/main.ts` 和 `desktop/src/preload/preload.ts`
+- [X] T075 [US2] 新增渲染层凭据存储适配器于 `desktop/src/renderer/src/api/credentialStore.ts`
+- [X] T076 [US2] 在登录页实现“是否记住密码”确认框、邮箱联想、密码回填和邮箱修改清空自动密码于 `desktop/src/renderer/src/pages/LoginPage.tsx`
+- [X] T077 [US2] 补充邮箱联想下拉和记住密码确认框样式于 `desktop/src/renderer/src/styles.css`
+- [X] T078 [US2] 运行桌面端构建验证，确认主进程、preload 和渲染层类型检查通过
+
+## 第 9 阶段：管理员受控初始化
+
+**目标**：在禁止公开注册管理员的前提下，为本地维护者提供可复现的管理员账号创建入口。
+
+- [X] T079 [US1] 新增管理员初始化命令于 `backend/cmd/admin/main.go`
+- [X] T080 [US1] 复用现有 bcrypt 密码哈希和用户仓储写入 `role=admin` 账号
+- [X] T081 [US1] 更新后端 README 的管理员初始化说明于 `backend/README.md`
+- [X] T082 [US1] 运行 `go build` 验证管理员命令可编译
+
 ## 依赖关系
 
 - 第 1 阶段必须先完成，为后端目录、配置、响应和 migration 提供基础。

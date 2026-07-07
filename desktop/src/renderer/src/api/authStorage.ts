@@ -1,10 +1,26 @@
 import type { AuthStateSnapshot, CachedAccount, LoginData, RefreshData, User } from "../types";
+import {
+  clearAllTokens,
+  clearCurrentTokens,
+  getAccessToken as getAccessTokenFromStorage,
+  getAccountRefreshToken,
+  getRefreshToken as getRefreshTokenFromStorage,
+  hasAccountRefreshToken,
+  removeAccountRefreshToken,
+  saveAccountRefreshToken,
+  saveTokens as saveTokensToStorage
+} from "./tokenStorage";
 
-const ACCESS_TOKEN_KEY = "go_cpabe_access_token";
-const REFRESH_TOKEN_KEY = "go_cpabe_refresh_token";
 const USER_KEY = "go_cpabe_user";
 const CURRENT_USER_ID_KEY = "go_cpabe_current_user_id";
 const CACHED_ACCOUNTS_KEY = "go_cpabe_cached_accounts";
+
+type LegacyCachedAccount = Partial<CachedAccount> & {
+  refreshToken?: string;
+  refreshTokenExpiresAt?: number;
+  lastActiveAt?: number;
+  user?: User;
+};
 
 function userIdOf(user: Pick<User, "id">): string {
   return String(user.id);
@@ -14,28 +30,17 @@ function refreshTokenExpiresAt(expiresIn?: number): number | undefined {
   return expiresIn ? Date.now() + expiresIn * 1000 : undefined;
 }
 
-function toCachedAccount(user: User, refreshToken: string, expiresIn?: number): CachedAccount {
+function toCachedAccount(user: User): CachedAccount {
   return {
     userId: userIdOf(user),
     email: user.email,
     nickname: user.nickname,
     role: user.role,
     avatarUrl: user.avatar_url || undefined,
-    user,
-    refreshToken,
-    refreshTokenExpiresAt: refreshTokenExpiresAt(expiresIn),
-    lastActiveAt: Date.now(),
+    lastLoginAt: Date.now(),
     expired: false,
     loggedOut: false
   };
-}
-
-export function getAccessToken(): string {
-  return localStorage.getItem(ACCESS_TOKEN_KEY) ?? "";
-}
-
-export function getRefreshToken(): string {
-  return localStorage.getItem(REFRESH_TOKEN_KEY) ?? "";
 }
 
 export function getStoredUser(): User | null {
@@ -52,15 +57,42 @@ export function getCachedAccounts(): CachedAccount[] {
   const raw = localStorage.getItem(CACHED_ACCOUNTS_KEY);
   if (!raw) return [];
   try {
-    const parsed = JSON.parse(raw) as CachedAccount[];
-    return Array.isArray(parsed) ? parsed.filter((account) => account.userId && account.email) : [];
+    const parsed = JSON.parse(raw) as LegacyCachedAccount[];
+    if (!Array.isArray(parsed)) return [];
+    const accounts = parsed
+      .filter((account) => account.userId && account.email)
+      .map((account) => {
+        const userId = String(account.userId);
+        if (account.refreshToken && !account.expired && !account.loggedOut) {
+          saveAccountRefreshToken(userId, account.refreshToken, account.refreshTokenExpiresAt);
+        }
+        if (account.expired || account.loggedOut) {
+          removeAccountRefreshToken(userId);
+        }
+        return sanitizeCachedAccount(account, userId);
+      });
+    saveCachedAccounts(accounts);
+    return accounts;
   } catch {
     return [];
   }
 }
 
+function sanitizeCachedAccount(account: LegacyCachedAccount, userId = String(account.userId ?? "")): CachedAccount {
+  return {
+    userId,
+    email: String(account.email ?? ""),
+    nickname: String(account.nickname || account.email || "未命名账号"),
+    role: account.role ?? "data_user",
+    avatarUrl: account.avatarUrl,
+    lastLoginAt: Number(account.lastLoginAt ?? account.lastActiveAt ?? Date.now()),
+    expired: Boolean(account.expired),
+    loggedOut: Boolean(account.loggedOut)
+  };
+}
+
 function saveCachedAccounts(accounts: CachedAccount[]): void {
-  localStorage.setItem(CACHED_ACCOUNTS_KEY, JSON.stringify(accounts));
+  localStorage.setItem(CACHED_ACCOUNTS_KEY, JSON.stringify(accounts.map((account) => sanitizeCachedAccount(account))));
 }
 
 function upsertCachedAccount(nextAccount: CachedAccount): CachedAccount[] {
@@ -69,13 +101,12 @@ function upsertCachedAccount(nextAccount: CachedAccount): CachedAccount[] {
   if (index >= 0) {
     accounts[index] = {
       ...accounts[index],
-      ...nextAccount,
-      refreshTokenExpiresAt: nextAccount.refreshTokenExpiresAt ?? accounts[index].refreshTokenExpiresAt
+      ...nextAccount
     };
   } else {
     accounts.push(nextAccount);
   }
-  accounts.sort((left, right) => right.lastActiveAt - left.lastActiveAt);
+  accounts.sort((left, right) => right.lastLoginAt - left.lastLoginAt);
   saveCachedAccounts(accounts);
   return accounts;
 }
@@ -96,7 +127,8 @@ export function getAuthSnapshot(): AuthStateSnapshot {
   let cachedAccounts = getCachedAccounts();
 
   if (user && refreshToken && !cachedAccounts.some((account) => account.userId === userIdOf(user))) {
-    cachedAccounts = upsertCachedAccount(toCachedAccount(user, refreshToken));
+    saveAccountRefreshToken(userIdOf(user), refreshToken);
+    cachedAccounts = upsertCachedAccount(toCachedAccount(user));
   }
 
   return {
@@ -108,17 +140,24 @@ export function getAuthSnapshot(): AuthStateSnapshot {
   };
 }
 
+export function getAccessToken(): string {
+  return getAccessTokenFromStorage();
+}
+
+export function getRefreshToken(): string {
+  return getRefreshTokenFromStorage();
+}
+
 export function saveTokens(accessToken: string, refreshToken?: string): void {
-  localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
-  if (refreshToken !== undefined) {
-    localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
-  }
+  saveTokensToStorage(accessToken, refreshToken);
 }
 
 export function saveLoginSession(data: LoginData): AuthStateSnapshot {
+  const account = toCachedAccount(data.user);
+  const expiresAt = refreshTokenExpiresAt(data.refresh_token_expires_in);
   saveTokens(data.access_token, data.refresh_token);
+  saveAccountRefreshToken(account.userId, data.refresh_token, expiresAt);
   saveUser(data.user);
-  const account = toCachedAccount(data.user, data.refresh_token, data.refresh_token_expires_in);
   localStorage.setItem(CURRENT_USER_ID_KEY, account.userId);
   const cachedAccounts = upsertCachedAccount(account);
   return {
@@ -131,10 +170,14 @@ export function saveLoginSession(data: LoginData): AuthStateSnapshot {
 }
 
 export function saveRefreshedSession(account: CachedAccount, data: RefreshData, user?: User | null): AuthStateSnapshot {
+  const previousUserId = getCurrentUserId();
   const nextUserId = user ? userIdOf(user) : account.userId;
-  const nextRefreshToken = data.refresh_token ?? account.refreshToken;
+  const nextRefreshToken = data.refresh_token ?? getAccountRefreshToken(account.userId) ?? getRefreshToken();
+  const expiresAt = refreshTokenExpiresAt(data.refresh_token_expires_in);
   saveTokens(data.access_token, nextRefreshToken);
+  saveAccountRefreshToken(nextUserId, nextRefreshToken, expiresAt);
   if (user) saveUser(user);
+  if (!user && previousUserId && previousUserId !== nextUserId) saveUser(null);
   localStorage.setItem(CURRENT_USER_ID_KEY, nextUserId);
 
   const cachedAccounts = upsertCachedAccount({
@@ -144,10 +187,7 @@ export function saveRefreshedSession(account: CachedAccount, data: RefreshData, 
     nickname: user?.nickname ?? account.nickname,
     role: user?.role ?? account.role,
     avatarUrl: user?.avatar_url || account.avatarUrl,
-    user: user ?? account.user,
-    refreshToken: nextRefreshToken,
-    refreshTokenExpiresAt: refreshTokenExpiresAt(data.refresh_token_expires_in) ?? account.refreshTokenExpiresAt,
-    lastActiveAt: Date.now(),
+    lastLoginAt: Date.now(),
     expired: false,
     loggedOut: false
   });
@@ -168,14 +208,26 @@ export function saveUser(user: User | null): void {
     const refreshToken = getRefreshToken();
     if (refreshToken && (!currentUserId || currentUserId === userIdOf(user))) {
       localStorage.setItem(CURRENT_USER_ID_KEY, userIdOf(user));
-      upsertCachedAccount(toCachedAccount(user, refreshToken));
+      if (!hasAccountRefreshToken(userIdOf(user))) {
+        saveAccountRefreshToken(userIdOf(user), refreshToken);
+      }
+      upsertCachedAccount(toCachedAccount(user));
     }
   } else {
     localStorage.removeItem(USER_KEY);
   }
 }
 
+export function getCachedAccountRefreshToken(userId: string): string {
+  return getAccountRefreshToken(userId);
+}
+
+export function hasCachedAccountToken(userId: string): boolean {
+  return hasAccountRefreshToken(userId);
+}
+
 export function markCachedAccountExpired(userId: string): CachedAccount[] {
+  removeAccountRefreshToken(userId);
   const accounts = getCachedAccounts().map((account) =>
     account.userId === userId ? { ...account, expired: true, loggedOut: false } : account
   );
@@ -184,22 +236,23 @@ export function markCachedAccountExpired(userId: string): CachedAccount[] {
 }
 
 export function markCachedAccountLoggedOut(userId: string): CachedAccount[] {
+  removeAccountRefreshToken(userId);
   const accounts = getCachedAccounts().map((account) =>
-    account.userId === userId ? { ...account, refreshToken: "", expired: true, loggedOut: true } : account
+    account.userId === userId ? { ...account, expired: true, loggedOut: true } : account
   );
   saveCachedAccounts(accounts);
   return accounts;
 }
 
 export function removeCachedAccount(userId: string): CachedAccount[] {
+  removeAccountRefreshToken(userId);
   const accounts = getCachedAccounts().filter((account) => account.userId !== userId);
   saveCachedAccounts(accounts);
   return accounts;
 }
 
 export function clearCurrentSession(): void {
-  localStorage.removeItem(ACCESS_TOKEN_KEY);
-  localStorage.removeItem(REFRESH_TOKEN_KEY);
+  clearCurrentTokens();
   localStorage.removeItem(USER_KEY);
   localStorage.removeItem(CURRENT_USER_ID_KEY);
 }
@@ -214,4 +267,5 @@ export function expireCurrentSession(): CachedAccount[] {
 export function clearStoredAuth(): void {
   clearCurrentSession();
   localStorage.removeItem(CACHED_ACCOUNTS_KEY);
+  clearAllTokens();
 }

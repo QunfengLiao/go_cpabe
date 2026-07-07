@@ -131,7 +131,7 @@ export function ProfilePage() {
       </div>
 
       <Alert type="error" message={error} />
-      <Alert type="success" message={success} />
+      <Alert type="success" message={success} autoDismissMs={3000} onDismiss={() => setSuccess("")} />
 
       {loading ? (
         <div className="panel empty-state">正在加载当前用户信息...</div>
