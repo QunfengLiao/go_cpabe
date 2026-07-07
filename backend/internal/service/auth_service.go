@@ -21,10 +21,11 @@ type RegisterInput struct {
 }
 
 type LoginInput struct {
-	Email     string
-	Password  string
-	UserAgent string
-	ClientIP  string
+	Email      string
+	Password   string
+	TenantCode string
+	UserAgent  string
+	ClientIP   string
 }
 
 type RefreshInput struct {
@@ -38,10 +39,15 @@ type AuthService struct {
 	manager    *auth.Manager
 	store      auth.TokenStore
 	refreshTTL time.Duration
+	tenants    *TenantService
 }
 
-func NewAuthService(users repository.UserRepository, manager *auth.Manager, store auth.TokenStore, refreshTTL time.Duration) *AuthService {
-	return &AuthService{users: users, manager: manager, store: store, refreshTTL: refreshTTL}
+func NewAuthService(users repository.UserRepository, manager *auth.Manager, store auth.TokenStore, refreshTTL time.Duration, tenants ...*TenantService) *AuthService {
+	svc := &AuthService{users: users, manager: manager, store: store, refreshTTL: refreshTTL}
+	if len(tenants) > 0 {
+		svc.tenants = tenants[0]
+	}
+	return svc
 }
 
 func (s *AuthService) Register(ctx context.Context, input RegisterInput) (domain.UserDTO, error) {
@@ -82,25 +88,45 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (domain
 	if err := s.users.Create(ctx, user); err != nil {
 		return domain.UserDTO{}, err
 	}
+	if s.tenants != nil {
+		if err := s.tenants.EnsureUserInDefaultTenant(ctx, user.ID, user.Role); err != nil {
+			return domain.UserDTO{}, err
+		}
+	}
 	return domain.ToUserDTO(*user, false), nil
 }
 
-func (s *AuthService) Login(ctx context.Context, input LoginInput) (auth.TokenPair, domain.UserDTO, error) {
+type LoginResult struct {
+	TokenPair auth.TokenPair
+	User      domain.UserDTO
+	Tenant    domain.TenantContextDTO
+}
+
+func (s *AuthService) Login(ctx context.Context, input LoginInput) (LoginResult, error) {
 	user, err := s.users.FindByEmail(ctx, input.Email)
 	if err != nil {
-		return auth.TokenPair{}, domain.UserDTO{}, response.ErrInvalidCredentials
+		return LoginResult{}, response.ErrInvalidCredentials
 	}
 	if user.Status == domain.StatusDisabled {
-		return auth.TokenPair{}, domain.UserDTO{}, response.ErrUserDisabled
+		return LoginResult{}, response.ErrUserDisabled
 	}
 	if !auth.CheckPassword(input.Password, user.PasswordHash) {
-		return auth.TokenPair{}, domain.UserDTO{}, response.ErrInvalidCredentials
+		return LoginResult{}, response.ErrInvalidCredentials
+	}
+	result := LoginResult{User: domain.ToUserDTO(*user, false)}
+	if s.tenants != nil {
+		tenantContext, err := s.tenants.TenantContextForUserByCode(ctx, user.ID, input.TenantCode)
+		if err != nil {
+			return LoginResult{}, err
+		}
+		result.Tenant = tenantContext
 	}
 	pair, err := s.issueTokenPair(ctx, user.ID, user.Role, "", input.UserAgent, input.ClientIP)
 	if err != nil {
-		return auth.TokenPair{}, domain.UserDTO{}, response.ErrRedisWriteFailed
+		return LoginResult{}, response.ErrRedisWriteFailed
 	}
-	return pair, domain.ToUserDTO(*user, false), nil
+	result.TokenPair = pair
+	return result, nil
 }
 
 func (s *AuthService) Refresh(ctx context.Context, input RefreshInput) (auth.TokenPair, error) {

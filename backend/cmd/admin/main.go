@@ -15,6 +15,7 @@ import (
 	"go-cpabe/backend/internal/pkg/auth"
 	"go-cpabe/backend/internal/pkg/validator"
 	"go-cpabe/backend/internal/repository"
+	"go-cpabe/backend/internal/service"
 )
 
 func main() {
@@ -67,13 +68,18 @@ func createAdmin(args []string) error {
 	if err != nil {
 		return fmt.Errorf("连接数据库: %w", err)
 	}
-	if err := db.AutoMigrate(&domain.User{}); err != nil {
+	if err := db.AutoMigrate(&domain.User{}, &domain.Tenant{}, &domain.TenantUser{}, &domain.Role{}, &domain.UserRoleAssignment{}); err != nil {
 		return fmt.Errorf("同步 users 表结构: %w", err)
 	}
 
 	repo := repository.NewGormUserRepository(db)
+	tenantRepo := repository.NewGormTenantRepository(db)
+	tenantSvc := service.NewTenantService(tenantRepo, repo)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	if err := tenantSvc.BootstrapDefaultTenant(ctx); err != nil {
+		return fmt.Errorf("初始化默认租户: %w", err)
+	}
 
 	if _, err := repo.FindByEmail(ctx, normalizedEmail); err == nil {
 		return errors.New("该邮箱已存在，请直接使用已有账号登录或更换邮箱")
@@ -96,6 +102,9 @@ func createAdmin(args []string) error {
 	}
 	if err := repo.Create(ctx, user); err != nil {
 		return fmt.Errorf("写入管理员用户: %w", err)
+	}
+	if err := tenantSvc.EnsureUserInDefaultTenant(ctx, user.ID, user.Role); err != nil {
+		return fmt.Errorf("绑定默认租户管理员: %w", err)
 	}
 
 	log.Printf("管理员已创建: email=%s id=%d", user.Email, user.ID)

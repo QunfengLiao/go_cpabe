@@ -1,8 +1,11 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"testing"
+
+	"go-cpabe/backend/internal/domain"
 )
 
 func TestLoginEndpoint(t *testing.T) {
@@ -19,6 +22,27 @@ func TestLoginEndpoint(t *testing.T) {
 	data := parseData(t, w)
 	if data["access_token"] == "" || data["refresh_token"] == "" || data["token_type"] != "Bearer" {
 		t.Fatalf("unexpected login data: %+v", data)
+	}
+	if data["current_tenant_id"] == nil || data["tenants"] == nil {
+		t.Fatalf("missing tenant context: %+v", data)
+	}
+	if data["current_tenant_code"] == nil {
+		t.Fatalf("missing tenant code: %+v", data)
+	}
+	if _, err := app.tenantRepo.EnsureTenant(context.Background(), &domain.Tenant{Name: "深信服科技", Code: "sangfor", Status: domain.TenantStatusEnabled}); err != nil {
+		t.Fatalf("ensure sangfor tenant: %v", err)
+	}
+	forbidden := performJSON(app.router, http.MethodPost, "/api/v1/auth/login", map[string]any{
+		"email": "user@example.com", "password": "Passw0rd!", "tenantCode": "sangfor",
+	}, "")
+	if forbidden.Code != http.StatusForbidden || !bytesContains(forbidden.Body.String(), "TENANT_MEMBER_FORBIDDEN") {
+		t.Fatalf("forbidden status=%d body=%s", forbidden.Code, forbidden.Body.String())
+	}
+	defaultTenant := performJSON(app.router, http.MethodPost, "/api/v1/auth/login", map[string]any{
+		"email": "user@example.com", "password": "Passw0rd!", "tenantCode": domain.DefaultTenantCode,
+	}, "")
+	if defaultTenant.Code != http.StatusOK {
+		t.Fatalf("default tenant status=%d body=%s", defaultTenant.Code, defaultTenant.Body.String())
 	}
 	bad := performJSON(app.router, http.MethodPost, "/api/v1/auth/login", map[string]any{
 		"email": "user@example.com", "password": "wrong",

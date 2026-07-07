@@ -13,9 +13,11 @@ import (
 
 func TestLoginRules(t *testing.T) {
 	repo := newMemoryUserRepo()
+	tenantRepo := newMemoryTenantRepo()
 	manager := auth.NewManager("secret", time.Minute)
 	store := auth.NewMemoryTokenStore()
-	svc := NewAuthService(repo, manager, store, time.Hour)
+	tenantSvc := NewTenantService(tenantRepo, repo)
+	svc := NewAuthService(repo, manager, store, time.Hour, tenantSvc)
 	ctx := context.Background()
 
 	_, err := svc.Register(ctx, RegisterInput{
@@ -25,21 +27,42 @@ func TestLoginRules(t *testing.T) {
 		t.Fatalf("register: %v", err)
 	}
 
-	pair, user, err := svc.Login(ctx, LoginInput{Email: "user@example.com", Password: "Passw0rd!"})
+	result, err := svc.Login(ctx, LoginInput{Email: "user@example.com", Password: "Passw0rd!"})
 	if err != nil {
 		t.Fatalf("login: %v", err)
 	}
-	if pair.AccessToken == "" || pair.RefreshToken == "" || pair.TokenType != "Bearer" {
-		t.Fatalf("unexpected token pair: %+v", pair)
+	if result.TokenPair.AccessToken == "" || result.TokenPair.RefreshToken == "" || result.TokenPair.TokenType != "Bearer" {
+		t.Fatalf("unexpected login result: %+v", result)
 	}
-	if user.Email != "user@example.com" {
-		t.Fatalf("unexpected user: %+v", user)
+	if result.User.Email != "user@example.com" {
+		t.Fatalf("unexpected user: %+v", result.User)
 	}
-	if _, err := manager.ParseAccessToken(pair.AccessToken); err != nil {
+	if result.Tenant.CurrentTenantID == nil || len(result.Tenant.Tenants) != 1 {
+		t.Fatalf("unexpected tenant context: %+v", result.Tenant)
+	}
+	if result.Tenant.CurrentTenantCode == nil || *result.Tenant.CurrentTenantCode != domain.DefaultTenantCode {
+		t.Fatalf("unexpected tenant code: %+v", result.Tenant)
+	}
+	if _, err := manager.ParseAccessToken(result.TokenPair.AccessToken); err != nil {
 		t.Fatalf("parse access token: %v", err)
 	}
 
-	if _, _, err := svc.Login(ctx, LoginInput{Email: "user@example.com", Password: "wrong"}); !errors.Is(err, response.ErrInvalidCredentials) {
+	if _, err := tenantRepo.EnsureTenant(ctx, &domain.Tenant{Name: "深信服科技", Code: "sangfor", Status: domain.TenantStatusEnabled}); err != nil {
+		t.Fatalf("ensure sangfor tenant: %v", err)
+	}
+	if _, err := svc.Login(ctx, LoginInput{Email: "user@example.com", Password: "Passw0rd!", TenantCode: "sangfor"}); !errors.Is(err, response.ErrTenantMemberForbidden) {
+		t.Fatalf("expected tenant member forbidden, got %v", err)
+	}
+
+	defaultResult, err := svc.Login(ctx, LoginInput{Email: "user@example.com", Password: "Passw0rd!", TenantCode: domain.DefaultTenantCode})
+	if err != nil {
+		t.Fatalf("login with default tenant: %v", err)
+	}
+	if defaultResult.Tenant.CurrentTenantCode == nil || *defaultResult.Tenant.CurrentTenantCode != domain.DefaultTenantCode {
+		t.Fatalf("unexpected default tenant context: %+v", defaultResult.Tenant)
+	}
+
+	if _, err := svc.Login(ctx, LoginInput{Email: "user@example.com", Password: "wrong"}); !errors.Is(err, response.ErrInvalidCredentials) {
 		t.Fatalf("expected invalid credentials, got %v", err)
 	}
 }

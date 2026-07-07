@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 
 	"go-cpabe/backend/internal/config"
@@ -22,23 +23,29 @@ func main() {
 	if err != nil {
 		log.Fatalf("open database: %v", err)
 	}
-	if err := db.AutoMigrate(&domain.User{}); err != nil {
+	if err := db.AutoMigrate(&domain.User{}, &domain.Tenant{}, &domain.TenantUser{}, &domain.Role{}, &domain.UserRoleAssignment{}); err != nil {
 		log.Fatalf("auto migrate: %v", err)
 	}
 
 	redisClient := config.OpenRedis(cfg)
 	userRepo := repository.NewGormUserRepository(db)
+	tenantRepo := repository.NewGormTenantRepository(db)
 	authManager := auth.NewManager(cfg.JWTSecret, cfg.AccessTokenTTL)
 	tokenStore := auth.NewRedisTokenStore(redisClient, cfg.RefreshTokenTTL)
 	localStorage := storage.NewLocalStorage(cfg.AvatarUploadDir, cfg.AvatarURLPrefix)
 
-	authSvc := service.NewAuthService(userRepo, authManager, tokenStore, cfg.RefreshTokenTTL)
+	tenantSvc := service.NewTenantService(tenantRepo, userRepo)
+	if err := tenantSvc.BootstrapDefaultTenant(context.Background()); err != nil {
+		log.Fatalf("bootstrap tenants: %v", err)
+	}
+	authSvc := service.NewAuthService(userRepo, authManager, tokenStore, cfg.RefreshTokenTTL, tenantSvc)
 	userSvc := service.NewUserService(userRepo, localStorage)
 	healthSvc := service.NewHealthService(cfg, db, nil, redisClient, nil)
 
 	router := handler.NewRouter(handler.Dependencies{
 		AuthService:   authSvc,
 		UserService:   userSvc,
+		TenantService: tenantSvc,
 		AuthManager:   authManager,
 		HealthService: healthSvc,
 		MaxAvatarSize: cfg.AvatarMaxSize,

@@ -47,6 +47,16 @@ func (r *memoryUserRepo) FindByID(_ context.Context, id uint64) (*domain.User, e
 	return &copy, nil
 }
 
+func (r *memoryUserRepo) ListAll(_ context.Context) ([]domain.User, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	users := make([]domain.User, 0, len(r.byID))
+	for _, user := range r.byID {
+		users = append(users, *user)
+	}
+	return users, nil
+}
+
 func (r *memoryUserRepo) Create(_ context.Context, user *domain.User) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

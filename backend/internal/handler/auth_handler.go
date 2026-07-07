@@ -24,8 +24,10 @@ type registerRequest struct {
 }
 
 type loginRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
+	Email           string `json:"email"`
+	Password        string `json:"password"`
+	TenantCode      string `json:"tenantCode"`
+	TenantCodeSnake string `json:"tenant_code"`
 }
 
 type refreshRequest struct {
@@ -62,24 +64,37 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		response.Fail(c, response.ErrBadRequest)
 		return
 	}
-	pair, user, err := h.service.Login(c.Request.Context(), service.LoginInput{
-		Email:     req.Email,
-		Password:  req.Password,
-		UserAgent: c.GetHeader("User-Agent"),
-		ClientIP:  c.ClientIP(),
+	result, err := h.service.Login(c.Request.Context(), service.LoginInput{
+		Email:      req.Email,
+		Password:   req.Password,
+		TenantCode: firstNonEmpty(req.TenantCode, req.TenantCodeSnake),
+		UserAgent:  c.GetHeader("User-Agent"),
+		ClientIP:   c.ClientIP(),
 	})
 	if err != nil {
 		response.Fail(c, err)
 		return
 	}
 	response.OK(c, gin.H{
-		"access_token":             pair.AccessToken,
-		"access_token_expires_in":  pair.AccessTokenExpiresIn,
-		"refresh_token":            pair.RefreshToken,
-		"refresh_token_expires_in": pair.RefreshTokenExpiresIn,
-		"token_type":               pair.TokenType,
-		"user":                     user,
+		"access_token":             result.TokenPair.AccessToken,
+		"access_token_expires_in":  result.TokenPair.AccessTokenExpiresIn,
+		"refresh_token":            result.TokenPair.RefreshToken,
+		"refresh_token_expires_in": result.TokenPair.RefreshTokenExpiresIn,
+		"token_type":               result.TokenPair.TokenType,
+		"user":                     result.User,
+		"current_tenant_id":        result.Tenant.CurrentTenantID,
+		"current_tenant_code":      result.Tenant.CurrentTenantCode,
+		"tenants":                  result.Tenant.Tenants,
 	})
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func (h *AuthHandler) Refresh(c *gin.Context) {

@@ -20,6 +20,7 @@ type UpdateProfileInput struct {
 type UserRepository interface {
 	FindByEmail(ctx context.Context, email string) (*domain.User, error)
 	FindByID(ctx context.Context, id uint64) (*domain.User, error)
+	ListAll(ctx context.Context) ([]domain.User, error)
 	Create(ctx context.Context, user *domain.User) error
 	UpdateProfile(ctx context.Context, id uint64, input UpdateProfileInput) (*domain.User, error)
 	UpdateAvatar(ctx context.Context, id uint64, avatarURL, avatarObjectKey string) (*domain.User, error)
@@ -55,6 +56,14 @@ func (r *GormUserRepository) FindByID(ctx context.Context, id uint64) (*domain.U
 		return nil, err
 	}
 	return &user, nil
+}
+
+func (r *GormUserRepository) ListAll(ctx context.Context) ([]domain.User, error) {
+	var users []domain.User
+	if err := r.db.WithContext(ctx).Find(&users).Error; err != nil {
+		return nil, err
+	}
+	return users, nil
 }
 
 func (r *GormUserRepository) Create(ctx context.Context, user *domain.User) error {
