@@ -34,11 +34,13 @@ func main() {
 
 	authSvc := service.NewAuthService(userRepo, authManager, tokenStore, cfg.RefreshTokenTTL)
 	userSvc := service.NewUserService(userRepo, localStorage)
+	healthSvc := service.NewHealthService(cfg, db, nil, redisClient, nil)
 
 	router := handler.NewRouter(handler.Dependencies{
 		AuthService:   authSvc,
 		UserService:   userSvc,
 		AuthManager:   authManager,
+		HealthService: healthSvc,
 		MaxAvatarSize: cfg.AvatarMaxSize,
 	})
 	router.Static(cfg.AvatarURLPrefix, cfg.AvatarUploadDir)

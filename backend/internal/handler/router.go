@@ -11,6 +11,7 @@ type Dependencies struct {
 	AuthService   *service.AuthService
 	UserService   *service.UserService
 	AuthManager   *auth.Manager
+	HealthService *service.HealthService
 	MaxAvatarSize int64
 }
 
@@ -20,6 +21,11 @@ func NewRouter(deps Dependencies) *gin.Engine {
 
 	authHandler := NewAuthHandler(deps.AuthService)
 	userHandler := NewUserHandler(deps.UserService, deps.MaxAvatarSize)
+
+	if deps.HealthService != nil {
+		healthHandler := NewHealthHandler(deps.HealthService)
+		router.GET("/health", healthHandler.Get)
+	}
 
 	api := router.Group("/api/v1")
 	api.POST("/auth/register", authHandler.Register)

@@ -19,7 +19,7 @@ func TestHealthDegradedWhenDependenciesUnavailable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	r := router.New(router.Dependencies{
-		Config:     config.Config{App: config.AppConfig{Env: "test", Port: 8080}},
+		Config:     config.Config{AppEnv: "test"},
 		MySQLError: fmt.Errorf("mysql connection failed: password=secret"),
 		RedisError: fmt.Errorf("redis connection failed: token=secret"),
 	})
@@ -55,7 +55,7 @@ func TestHealthAllowsDesktopRendererOrigin(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	r := router.New(router.Dependencies{
-		Config: config.Config{App: config.AppConfig{Env: "test", Port: 8080}},
+		Config: config.Config{AppEnv: "test"},
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)

@@ -12,6 +12,7 @@ import (
 )
 
 type Config struct {
+	AppEnv          string
 	MySQLDSN        string
 	RedisAddr       string
 	RedisPassword   string
@@ -31,6 +32,7 @@ func Load() (Config, error) {
 	}
 
 	cfg := Config{
+		AppEnv:          getenv("APP_ENV", "development"),
 		MySQLDSN:        mysqlDSNFromEnv(),
 		RedisAddr:       getenv("REDIS_ADDR", "127.0.0.1:6379"),
 		RedisPassword:   getenv("REDIS_PASSWORD", ""),
