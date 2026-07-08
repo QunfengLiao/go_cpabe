@@ -103,6 +103,13 @@
 - **[Entity 1]**: [What it represents, key attributes without implementation]
 - **[Entity 2]**: [What it represents, relationships to other entities]
 
+### 宪章对齐（必填）
+
+- **混合加密与真实 CP-ABE**: [说明本功能是否触及文件内容加密、DEK 封装、RSA 或 CP-ABE；如触及，必须遵守宪章]
+- **模块边界**: [说明功能分别落在哪些后端模块，避免密码算法逻辑散落在 Handler/Service 中]
+- **可解释性**: [说明用户如何理解访问策略、属性匹配、解密成功/失败或性能对比结果]
+- **关键注释要求**: [说明本功能是否会新增或修改核心业务代码；如会，必须要求中文注释解释设计原因和安全边界]
+
 ## Success Criteria *(mandatory)*
 
 <!--

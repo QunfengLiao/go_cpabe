@@ -72,3 +72,7 @@ BASE_URL=http://localhost:18080/api/v1 ./scripts/verify_auth_flow.sh
 后续修改核心业务代码时，需要遵守项目宪章中的 AI 协作与代码注释规范。涉及认证、Token、
 密码、文件上传和访问控制的逻辑，应使用必要中文注释说明设计原因和安全边界，避免无意义
 逐行注释。
+
+新增或修改 Service、Repository、Handler/Middleware 中的业务规则，以及 Crypto、Policy、
+Benchmark、Audit 相关实现后，必须执行“关键注释和可读性检查”。检查重点是确认注释解释
+风险点和取舍，而不是重复代码表面行为。

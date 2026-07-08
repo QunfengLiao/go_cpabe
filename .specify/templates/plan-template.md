@@ -40,7 +40,17 @@
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-[Gates determined based on constitution file]
+请根据 `.specify/memory/constitution.md` 逐条填写，未通过项必须在进入实现前修正或解释。
+
+- **混合加密边界**: [说明是否涉及 AES-GCM、RSA-OAEP、CP-ABE、DEK 封装；不涉及则说明原因]
+- **真实 CP-ABE 实现**: [说明是否依赖真实 Go CP-ABE 库；不得使用模拟逻辑冒充真实加解密]
+- **模块边界**: [说明 Crypto、Policy、File、User、Benchmark、Audit 等模块职责是否清晰]
+- **算法对比口径**: [说明是否区分 AES 文件加密耗时与 DEK 封装/解封装耗时]
+- **可解释性**: [说明如何解释访问策略、属性匹配、解密成功/失败原因]
+- **中文文档**: [确认本 feature 的 SpecKit 文档使用简体中文]
+- **关键注释策略**: [如新增或修改核心业务代码，说明哪些安全、认证、权限、Token、文件上传、加密、
+  访问控制或复杂业务逻辑需要中文注释解释设计原因和安全边界]
+- **关键注释和可读性检查**: [确认 tasks.md 将包含对应检查任务；若不涉及核心业务代码，说明原因]
 
 ## Project Structure
 
