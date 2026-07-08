@@ -23,6 +23,8 @@ export function AppLayout() {
   const [accountMenuStyle, setAccountMenuStyle] = useState({ left: VIEWPORT_MARGIN, top: VIEWPORT_MARGIN });
   const upcomingModules = ["文件管理", "访问策略", "密钥管理", "加密算法对比"];
   const avatarURL = resolveAvatarURL(auth.user?.avatar_url);
+  const currentTenant = auth.tenants.find((tenant) => String(tenant.tenant_id) === auth.currentTenantId);
+  const isTenantAdmin = Boolean(currentTenant?.roles?.includes("TENANT_ADMIN"));
   const sortedAccounts = useMemo(() => [...auth.cachedAccounts].sort((left, right) => {
     if (left.userId === auth.currentUserId) return -1;
     if (right.userId === auth.currentUserId) return 1;
@@ -144,6 +146,14 @@ export function AppLayout() {
               </NavLink>
               <NavLink to="/platform/tenants/new" className={({ isActive }) => (isActive ? "nav-item nav-item-active" : "nav-item")}>
                 创建租户
+              </NavLink>
+            </>
+          )}
+          {isTenantAdmin && (
+            <>
+              <div className="nav-section-title">租户管理</div>
+              <NavLink to="/tenant/members" className={({ isActive }) => (isActive ? "nav-item nav-item-active" : "nav-item")}>
+                成员角色
               </NavLink>
             </>
           )}

@@ -13,7 +13,7 @@ import (
 const (
 	// ContextTenantID 是租户中间件写入 gin.Context 的当前租户 ID 键。
 	ContextTenantID = "tenant_id"
-	// ContextTenantRoles 是租户中间件写入 gin.Context 的当前租户内角色列表键。
+	// ContextTenantRoles 是租户中间件写入 gin.Context 的当前上下文身份角色键，平台管理员场景会保留 PLATFORM_ADMIN。
 	ContextTenantRoles = "tenant_roles"
 	// ContextTenantCode 是租户中间件写入 gin.Context 的当前租户编码键。
 	ContextTenantCode = "tenant_code"
@@ -24,7 +24,7 @@ type TenantResolver interface {
 	ResolveTenantContext(ctx context.Context, userID uint64, tenantID uint64) (*domain.Tenant, []domain.RoleCode, error)
 }
 
-// TenantRequired 从 X-Tenant-Id 读取租户选择，校验成员关系后写入当前租户上下文。
+// TenantRequired 从 X-Tenant-Id 读取租户选择，校验普通成员关系或平台管理员身份后写入当前租户上下文。
 func TenantRequired(tenants TenantResolver) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID, ok := currentUserID(c)
@@ -50,7 +50,7 @@ func TenantRequired(tenants TenantResolver) gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		// X-Tenant-Id 只是用户选择的租户输入，真正可信的边界来自后端对租户状态和成员关系的校验。
+		// X-Tenant-Id 只是用户选择的租户输入，真正可信的边界来自后端对租户状态、成员关系或平台管理员身份的校验。
 		tenant, roles, err := tenants.ResolveTenantContext(c.Request.Context(), userID, tenantID)
 		if err != nil {
 			response.Fail(c, err)

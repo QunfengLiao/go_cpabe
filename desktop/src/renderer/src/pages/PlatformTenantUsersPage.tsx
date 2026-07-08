@@ -136,6 +136,11 @@ export function PlatformTenantUsersPage() {
         </section>
       )}
 
+      <section className="panel platform-note">
+        <h3>角色分配边界</h3>
+        <p>平台管理员只负责加入成员和指定 Tenant Admin，不在这里分配数据拥有者或数据访问者。</p>
+      </section>
+
       <form className="panel compact-form" onSubmit={(event) => void onAddUser(event)}>
         <label className="field">
           <span>加入用户 ID</span>
@@ -171,7 +176,7 @@ export function PlatformTenantUsersPage() {
                     </td>
                     <td>{member.user_id}</td>
                     <td><MemberStatusBadge status={member.member_status} /></td>
-                    <td>{member.roles.length > 0 ? member.roles.join("、") : "-"}</td>
+                    <td>{roleListLabel(member.roles)}</td>
                     <td>
                       <div className="inline-action-row">
                         {isAdmin ? (
@@ -219,4 +224,14 @@ export function PlatformTenantUsersPage() {
 function MemberStatusBadge({ status }: { status: string }) {
   const active = status === "active";
   return <span className={`status-badge ${active ? "status-enabled" : "status-disabled"}`}>{active ? "有效" : "已停用"}</span>;
+}
+
+function roleListLabel(roles: string[]) {
+  if (roles.length === 0) return "-";
+  return roles.map((role) => {
+    if (role === "TENANT_ADMIN") return "Tenant Admin";
+    if (role === "DO") return "数据拥有者";
+    if (role === "DU") return "数据访问者";
+    return role;
+  }).join("、");
 }

@@ -17,6 +17,7 @@ import { ProfilePage } from "./pages/ProfilePage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { SelectTenantPage } from "./pages/SelectTenantPage";
 import { StartupRedirect } from "./pages/StartupRedirect";
+import { TenantMembersPage } from "./pages/TenantMembersPage";
 import { prepareStartupTenant } from "./tenantStartup";
 import { ThemeProvider } from "./theme/ThemeProvider";
 import "./styles.css";
@@ -43,6 +44,7 @@ createRoot(document.getElementById("root")!).render(
               <Route element={<AppLayout />}>
                 <Route path="/profile" element={<ProfilePage />} />
                 <Route path="/profile/edit" element={<ProfilePage />} />
+                <Route path="/tenant/members" element={<TenantMembersPage />} />
                 <Route element={<RequirePlatformAdmin />}>
                   <Route path="/platform" element={<PlatformDashboardPage />} />
                   <Route path="/platform/tenants" element={<PlatformTenantListPage />} />

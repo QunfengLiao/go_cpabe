@@ -61,6 +61,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	tenants.POST("/:id/users", tenantHandler.AddTenantUser)
 	tenants.DELETE("/:id/users/:userId", tenantHandler.RemoveTenantUser)
 	tenants.GET("/:id/users", tenantHandler.ListTenantUsers)
+	tenants.PUT("/:id/members/:userId/role", tenantHandler.AssignTenantMemberRole)
 
 	platform := api.Group("/platform", middleware.AuthRequired(deps.AuthManager), middleware.PlatformAdminRequired(deps.PlatformRoleResolver))
 	platform.GET("/dashboard", platformHandler.Dashboard)

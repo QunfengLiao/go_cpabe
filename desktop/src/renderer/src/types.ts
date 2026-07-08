@@ -15,6 +15,7 @@ export interface User {
 }
 
 export type TenantRole = "PLATFORM_ADMIN" | "TENANT_ADMIN" | "DO" | "DU";
+export type TenantBusinessRole = "DATA_OWNER" | "DATA_VISITOR";
 export type TenantStatus = "enabled" | "disabled";
 
 export interface TenantSummary {

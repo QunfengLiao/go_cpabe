@@ -3249,6 +3249,122 @@ html[data-mode="dark"] .login-robot-face {
   font-size: 12px;
 }
 
+.muted-cell {
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.role-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  background: rgba(15, 23, 42, 0.36);
+  padding: 18px;
+}
+
+.role-dialog {
+  width: min(460px, 100%);
+  display: grid;
+  gap: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-card);
+  box-shadow: var(--shadow-strong);
+  padding: 18px;
+}
+
+.role-dialog h3,
+.role-dialog p,
+.role-dialog-member {
+  margin: 0;
+}
+
+.role-dialog h3 {
+  color: var(--color-heading);
+  font-size: 18px;
+}
+
+.role-dialog p {
+  margin-top: 4px;
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.role-dialog-member {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-card-muted);
+  padding: 12px;
+}
+
+.role-dialog-member div {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.role-dialog-member dt {
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.role-dialog-member dd {
+  margin: 0;
+  color: var(--color-heading);
+  font-size: 13px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.role-dialog-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.role-option {
+  min-height: 78px;
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-card);
+  color: var(--color-text);
+  cursor: pointer;
+  padding: 12px;
+  text-align: left;
+}
+
+.role-option:hover:not(:disabled),
+.role-option-active {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
+
+.role-option strong {
+  color: var(--color-heading);
+  font-size: 14px;
+}
+
+.role-option span {
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.role-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 @media (max-width: 560px) {
   .content,
   .topbar {

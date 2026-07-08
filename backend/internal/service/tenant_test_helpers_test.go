@@ -293,6 +293,24 @@ func (r *memoryTenantRepo) RemoveUserRole(_ context.Context, tenantID *uint64, u
 	return nil
 }
 
+// ReplaceTenantBusinessRole 在测试仓储中模拟事务替换 DO/DU 普通业务角色。
+func (r *memoryTenantRepo) ReplaceTenantBusinessRole(_ context.Context, tenantID uint64, userID uint64, roleCode domain.RoleCode) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	roleID, ok := r.roleCodes[roleCode]
+	if !ok {
+		return repository.ErrRoleNotFound
+	}
+	for _, code := range []domain.RoleCode{domain.RoleDO, domain.RoleDU} {
+		if id, ok := r.roleCodes[code]; ok {
+			delete(r.assignments, memoryTenantRoleKey(&tenantID, userID, id))
+		}
+	}
+	r.assignments[memoryTenantRoleKey(&tenantID, userID, roleID)] = &domain.UserRoleAssignment{ID: r.nextAssign, TenantID: &tenantID, UserID: userID, RoleID: roleID}
+	r.nextAssign++
+	return nil
+}
+
 // ListRoleCodesByUserTenant 返回测试仓储中用户在指定租户内的角色编码。
 func (r *memoryTenantRepo) ListRoleCodesByUserTenant(_ context.Context, userID uint64, tenantID uint64) ([]domain.RoleCode, error) {
 	r.mu.Lock()

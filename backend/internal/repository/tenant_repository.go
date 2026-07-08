@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"go-cpabe/backend/internal/domain"
+
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -40,6 +41,7 @@ type TenantRepository interface {
 	FindRoleByCode(ctx context.Context, code domain.RoleCode) (*domain.Role, error)
 	EnsureUserRole(ctx context.Context, tenantID *uint64, userID uint64, roleCode domain.RoleCode) error
 	RemoveUserRole(ctx context.Context, tenantID *uint64, userID uint64, roleCode domain.RoleCode) error
+	ReplaceTenantBusinessRole(ctx context.Context, tenantID uint64, userID uint64, roleCode domain.RoleCode) error
 	ListRoleCodesByUserTenant(ctx context.Context, userID uint64, tenantID uint64) ([]domain.RoleCode, error)
 	ListPlatformRoleCodes(ctx context.Context, userID uint64) ([]domain.RoleCode, error)
 	HasRole(ctx context.Context, userID uint64, tenantID *uint64, roleCode domain.RoleCode) (bool, error)
@@ -370,6 +372,40 @@ func (r *GormTenantRepository) RemoveUserRole(ctx context.Context, tenantID *uin
 		query = query.Where("tenant_id = ?", *tenantID)
 	}
 	return query.Delete(&domain.UserRoleAssignment{}).Error
+}
+
+// ReplaceTenantBusinessRole 在事务中替换用户的租户内普通业务角色，保证 DO/DU 互斥且失败时回滚旧角色。
+func (r *GormTenantRepository) ReplaceTenantBusinessRole(ctx context.Context, tenantID uint64, userID uint64, roleCode domain.RoleCode) error {
+	roleID, err := r.roleIDByCode(ctx, roleCode)
+	if err != nil {
+		return err
+	}
+	businessRoleIDs := make([]uint64, 0, 2)
+	for _, code := range []domain.RoleCode{domain.RoleDO, domain.RoleDU} {
+		id, err := r.roleIDByCode(ctx, code)
+		if errors.Is(err, ErrRoleNotFound) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		businessRoleIDs = append(businessRoleIDs, id)
+	}
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if len(businessRoleIDs) > 0 {
+			// 普通业务角色本期必须单选；先删除旧 DO/DU 再写入新角色，整个过程放在事务中避免半完成状态。
+			if err := tx.Unscoped().
+				Where("tenant_id = ? AND user_id = ? AND role_id IN ?", tenantID, userID, businessRoleIDs).
+				Delete(&domain.UserRoleAssignment{}).Error; err != nil {
+				return err
+			}
+		}
+		assignment := domain.UserRoleAssignment{TenantID: &tenantID, UserID: userID, RoleID: roleID}
+		return tx.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "tenant_id"}, {Name: "user_id"}, {Name: "role_id"}},
+			DoNothing: true,
+		}).Create(&assignment).Error
+	})
 }
 
 // ListRoleCodesByUserTenant 返回用户在指定租户内拥有的角色编码列表。

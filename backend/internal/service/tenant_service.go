@@ -30,6 +30,11 @@ type AddTenantUserInput struct {
 	Roles  []domain.RoleCode
 }
 
+// AssignTenantMemberRoleInput 表示租户管理员为成员保存普通业务角色的输入。
+type AssignTenantMemberRoleInput struct {
+	RoleCode string
+}
+
 // demoTenants 是开发演示环境默认写入的租户集合。
 var demoTenants = []domain.Tenant{
 	{Name: "四川师范大学", Code: "scnu", Status: domain.TenantStatusEnabled, Description: "科研数据安全共享演示租户"},
@@ -43,7 +48,7 @@ func NewTenantService(tenants repository.TenantRepository, users repository.User
 	return &TenantService{tenants: tenants, users: users}
 }
 
-// BootstrapDefaultTenant 幂等写入基础角色、演示租户，并为历史用户补齐默认租户关系。
+// BootstrapDefaultTenant 幂等写入基础角色、演示租户，并为非平台管理员的历史用户补齐默认租户关系。
 func (s *TenantService) BootstrapDefaultTenant(ctx context.Context) error {
 	// Bootstrap 必须幂等：开发环境会在每次启动时执行，不能因为重复 seed 破坏已有租户和授权。
 	if err := s.EnsureBaseRoles(ctx); err != nil {
@@ -60,7 +65,7 @@ func (s *TenantService) BootstrapDefaultTenant(ctx context.Context) error {
 		return err
 	}
 	// 历史用户没有 tenant_users/user_roles 记录时无法进入多租户上下文，
-	// 因此启动时做一次兼容性补齐，后续可迁移为独立 seed 命令。
+	// 因此启动时做一次兼容性补齐；平台管理员是全局运维身份，不能被这个迁移步骤自动变成租户成员。
 	for _, user := range users {
 		if err := s.EnsureUserInDefaultTenant(ctx, user.ID, user.Role); err != nil {
 			return err
@@ -85,8 +90,15 @@ func (s *TenantService) EnsureBaseRoles(ctx context.Context) error {
 	return nil
 }
 
-// EnsureUserInDefaultTenant 将用户加入默认租户，并把旧单租户角色映射为租户内角色。
+// EnsureUserInDefaultTenant 将普通历史用户加入默认租户，并把旧单租户角色映射为租户内角色。
 func (s *TenantService) EnsureUserInDefaultTenant(ctx context.Context, userID uint64, legacyRole domain.UserRole) error {
+	if ok, err := s.isPlatformAdmin(ctx, userID); err != nil {
+		return err
+	} else if ok {
+		// PLATFORM_ADMIN 只代表平台后台管理权限。跳过默认租户迁移，避免启动或登录补齐时把平台管理员写入 tenant_users，
+		// 也避免把旧 users.role=admin 误映射为默认租户的 TENANT_ADMIN。
+		return nil
+	}
 	tenant, err := s.tenants.EnsureTenant(ctx, &domain.Tenant{
 		Name:        "默认租户",
 		Code:        domain.DefaultTenantCode,
@@ -109,6 +121,36 @@ func (s *TenantService) EnsureUserInDefaultTenant(ctx context.Context, userID ui
 
 // TenantContextForUser 返回用户可进入的租户列表，只有一个租户时自动设置当前租户。
 func (s *TenantService) TenantContextForUser(ctx context.Context, userID uint64) (domain.TenantContextDTO, error) {
+	if ok, err := s.isPlatformAdmin(ctx, userID); err != nil {
+		return domain.TenantContextDTO{}, err
+	} else if ok {
+		tenants, err := s.tenants.ListTenants(ctx)
+		if err != nil {
+			return domain.TenantContextDTO{}, err
+		}
+		items := make([]domain.TenantDTO, 0, len(tenants))
+		for _, tenant := range tenants {
+			if tenant.Status != domain.TenantStatusEnabled {
+				continue
+			}
+			items = append(items, domain.TenantDTO{
+				TenantID:   tenant.ID,
+				TenantName: tenant.Name,
+				TenantCode: tenant.Code,
+				Status:     tenant.Status,
+				// 平台管理员进入租户页面时保持平台身份，不伪装为租户管理员或数据角色。
+				Roles: []domain.RoleCode{domain.RolePlatformAdmin},
+			})
+		}
+		var current *uint64
+		var currentCode *string
+		if len(items) == 1 {
+			current = &items[0].TenantID
+			currentCode = &items[0].TenantCode
+		}
+		return domain.TenantContextDTO{CurrentTenantID: current, CurrentTenantCode: currentCode, Tenants: items}, nil
+	}
+
 	tenants, err := s.tenants.ListTenantsByUser(ctx, userID)
 	if err != nil {
 		return domain.TenantContextDTO{}, err
@@ -155,7 +197,8 @@ func (s *TenantService) TenantContextForUserByCode(ctx context.Context, userID u
 		}
 		return domain.TenantContextDTO{}, err
 	}
-	// 登录入口中的 tenantCode 只是前端选择，必须在签发 token 前校验用户确实属于该租户。
+	// 登录入口中的 tenantCode 只是前端选择，必须在签发 token 前校验用户确实有权进入该租户。
+	// PLATFORM_ADMIN 走平台身份例外路径；普通用户仍必须是 tenant_users 中的 active 成员。
 	if _, _, err := s.ResolveTenantContext(ctx, userID, tenant.ID); err != nil {
 		return domain.TenantContextDTO{}, err
 	}
@@ -168,7 +211,7 @@ func (s *TenantService) TenantContextForUserByCode(ctx context.Context, userID u
 	return context, nil
 }
 
-// SwitchTenant 校验用户租户成员关系后返回新的当前租户上下文。
+// SwitchTenant 校验用户可进入目标租户后返回新的当前租户上下文。
 func (s *TenantService) SwitchTenant(ctx context.Context, userID uint64, tenantID uint64) (domain.SwitchTenantDTO, error) {
 	tenant, roles, err := s.ResolveTenantContext(ctx, userID, tenantID)
 	if err != nil {
@@ -188,7 +231,7 @@ func (s *TenantService) SwitchTenant(ctx context.Context, userID uint64, tenantI
 	}, nil
 }
 
-// ResolveTenantContext 校验租户存在、已启用且用户是 active 成员，并返回租户内角色。
+// ResolveTenantContext 校验租户存在、已启用，并按平台管理员或普通成员路径返回当前身份。
 func (s *TenantService) ResolveTenantContext(ctx context.Context, userID uint64, tenantID uint64) (*domain.Tenant, []domain.RoleCode, error) {
 	tenant, err := s.tenants.FindTenantByID(ctx, tenantID)
 	if err != nil {
@@ -199,6 +242,13 @@ func (s *TenantService) ResolveTenantContext(ctx context.Context, userID uint64,
 	}
 	if tenant.Status != domain.TenantStatusEnabled {
 		return nil, nil, response.ErrTenantDisabled
+	}
+	if ok, err := s.isPlatformAdmin(ctx, userID); err != nil {
+		return nil, nil, err
+	} else if ok {
+		// PLATFORM_ADMIN 是平台级运维身份，可以进入任意 active 租户页面做管理，
+		// 但它不是租户成员，不能在这里写 tenant_users，也不能授予 DO/DU 等文件解密业务角色。
+		return tenant, []domain.RoleCode{domain.RolePlatformAdmin}, nil
 	}
 	// 租户上下文不能只信任 token 或请求头；每次切换/访问都重新校验成员关系和租户状态。
 	member, err := s.tenants.FindTenantUser(ctx, tenantID, userID)
@@ -349,6 +399,55 @@ func (s *TenantService) ListTenantUsers(ctx context.Context, actorID uint64, ten
 	return result, nil
 }
 
+// AssignTenantMemberBusinessRole 校验租户管理员身份后，为本租户成员替换单一普通业务角色。
+func (s *TenantService) AssignTenantMemberBusinessRole(ctx context.Context, actorID uint64, tenantID uint64, targetUserID uint64, input AssignTenantMemberRoleInput) (domain.TenantMemberDTO, error) {
+	role, err := tenantBusinessRoleFromRequest(input.RoleCode)
+	if err != nil {
+		return domain.TenantMemberDTO{}, err
+	}
+	tenant, err := s.tenants.FindTenantByID(ctx, tenantID)
+	if err != nil {
+		if errors.Is(err, repository.ErrTenantNotFound) {
+			return domain.TenantMemberDTO{}, response.ErrTenantNotFound
+		}
+		return domain.TenantMemberDTO{}, err
+	}
+	if tenant.Status != domain.TenantStatusEnabled {
+		return domain.TenantMemberDTO{}, response.ErrTenantDisabled
+	}
+	if ok, err := s.isPlatformAdmin(ctx, actorID); err != nil {
+		return domain.TenantMemberDTO{}, err
+	} else if ok {
+		// PLATFORM_ADMIN 负责平台治理和兜底指定租户管理员，不参与租户内 DO/DU 日常分配。
+		// 这里显式拒绝，避免平台身份绕过 tenant_users 成员关系并获得租户业务角色写入能力。
+		return domain.TenantMemberDTO{}, response.ErrTenantRoleAssignPlatformForbidden
+	}
+	if ok, err := s.tenants.HasRole(ctx, actorID, &tenantID, domain.RoleTenantAdmin); err != nil {
+		return domain.TenantMemberDTO{}, err
+	} else if !ok {
+		return domain.TenantMemberDTO{}, response.ErrTenantPermissionDenied
+	}
+	if actorID == targetUserID {
+		// 只有确认操作者确实是本租户管理员后，才返回“不能修改自己的管理员角色”；
+		// 普通成员直接调用接口仍应按无权限处理，避免暴露多余的角色语义。
+		return domain.TenantMemberDTO{}, response.ErrTenantAdminSelfRoleForbidden
+	}
+	member, err := s.tenants.FindTenantUser(ctx, tenantID, targetUserID)
+	if err != nil {
+		if errors.Is(err, repository.ErrTenantMemberMissing) {
+			return domain.TenantMemberDTO{}, response.ErrTenantMemberForbidden
+		}
+		return domain.TenantMemberDTO{}, err
+	}
+	if member.Status != domain.TenantUserStatusActive {
+		return domain.TenantMemberDTO{}, response.ErrTenantMemberDisabled
+	}
+	if err := s.tenants.ReplaceTenantBusinessRole(ctx, tenantID, targetUserID, role); err != nil {
+		return domain.TenantMemberDTO{}, err
+	}
+	return s.findTenantMemberDTO(ctx, tenantID, targetUserID)
+}
+
 // ensureTenantManager 校验用户是否具备指定租户的管理权限。
 func (s *TenantService) ensureTenantManager(ctx context.Context, userID uint64, tenantID uint64) error {
 	if err := s.ensurePlatformOrLegacyAdmin(ctx, userID); err == nil {
@@ -367,7 +466,7 @@ func (s *TenantService) ensureTenantManager(ctx context.Context, userID uint64, 
 
 // ensurePlatformOrLegacyAdmin 校验平台管理员角色，并兼容旧 users.role 中的 admin。
 func (s *TenantService) ensurePlatformOrLegacyAdmin(ctx context.Context, userID uint64) error {
-	ok, err := s.tenants.HasRole(ctx, userID, nil, domain.RolePlatformAdmin)
+	ok, err := s.isPlatformAdmin(ctx, userID)
 	if err != nil {
 		return err
 	}
@@ -383,6 +482,37 @@ func (s *TenantService) ensurePlatformOrLegacyAdmin(ctx context.Context, userID 
 		return nil
 	}
 	return response.ErrTenantPermissionDenied
+}
+
+// isPlatformAdmin 只检查 user_roles 中 tenant_id IS NULL 的平台管理员授权，不把旧 admin 字段当作租户上下文绕过依据。
+func (s *TenantService) isPlatformAdmin(ctx context.Context, userID uint64) (bool, error) {
+	return s.tenants.HasRole(ctx, userID, nil, domain.RolePlatformAdmin)
+}
+
+// findTenantMemberDTO 从最新成员列表中定位目标成员，确保角色分配响应和列表回显使用同一聚合口径。
+func (s *TenantService) findTenantMemberDTO(ctx context.Context, tenantID uint64, userID uint64) (domain.TenantMemberDTO, error) {
+	members, err := s.tenants.ListTenantUsers(ctx, tenantID)
+	if err != nil {
+		return domain.TenantMemberDTO{}, err
+	}
+	for _, member := range members {
+		if member.UserID == userID {
+			return toTenantMemberDTO(member), nil
+		}
+	}
+	return domain.TenantMemberDTO{}, response.ErrTenantMemberForbidden
+}
+
+// tenantBusinessRoleFromRequest 将前端业务角色名映射为系统内部稳定角色编码，并拒绝平台或管理员角色。
+func tenantBusinessRoleFromRequest(raw string) (domain.RoleCode, error) {
+	switch strings.ToUpper(strings.TrimSpace(raw)) {
+	case "DATA_OWNER", string(domain.RoleDO):
+		return domain.RoleDO, nil
+	case "DATA_VISITOR", string(domain.RoleDU):
+		return domain.RoleDU, nil
+	default:
+		return "", response.ErrInvalidRole
+	}
 }
 
 // toTenantDTO 将租户实体转换为对外 DTO，并附带调用方传入的角色列表。

@@ -79,6 +79,10 @@ var (
 	ErrTenantCodeInvalid = NewError("TENANT_CODE_INVALID", "租户编码格式非法", http.StatusBadRequest)
 	// ErrTenantLastAdminForbidden 表示操作会导致租户失去最后一个管理员。
 	ErrTenantLastAdminForbidden = NewError("TENANT_LAST_ADMIN_FORBIDDEN", "不能移除最后一个租户管理员", http.StatusConflict)
+	// ErrTenantRoleAssignPlatformForbidden 表示平台管理员不能通过租户内普通角色分配接口写入业务角色。
+	ErrTenantRoleAssignPlatformForbidden = NewError("TENANT_ROLE_ASSIGN_PLATFORM_FORBIDDEN", "平台管理员不参与租户内业务角色分配", http.StatusForbidden)
+	// ErrTenantAdminSelfRoleForbidden 表示租户管理员不能通过普通业务角色接口修改自己的管理员身份。
+	ErrTenantAdminSelfRoleForbidden = NewError("TENANT_ADMIN_SELF_ROLE_FORBIDDEN", "不能修改自己的租户管理员角色", http.StatusForbidden)
 	// ErrPlatformPermissionDenied 表示当前用户没有平台级管理权限。
 	ErrPlatformPermissionDenied = NewError("PLATFORM_PERMISSION_DENIED", "当前用户不是平台管理员", http.StatusForbidden)
 	// ErrInternal 表示服务端内部异常，响应中不暴露底层错误细节。

@@ -39,6 +39,11 @@ type addTenantUserRequest struct {
 	Roles  []domain.RoleCode `json:"roles"`
 }
 
+// assignTenantMemberRoleRequest 是租户成员普通业务角色分配请求体。
+type assignTenantMemberRoleRequest struct {
+	RoleCode string `json:"roleCode"`
+}
+
 // MyTenants 返回当前用户可访问的租户上下文。
 func (h *TenantHandler) MyTenants(c *gin.Context) {
 	userID, ok := currentUserID(c)
@@ -195,6 +200,30 @@ func (h *TenantHandler) ListTenantUsers(c *gin.Context) {
 		return
 	}
 	response.OK(c, gin.H{"users": users})
+}
+
+// AssignTenantMemberRole 处理租户管理员给本租户成员分配普通业务角色的请求。
+func (h *TenantHandler) AssignTenantMemberRole(c *gin.Context) {
+	userID, tenantID, ok := tenantPathIDs(c, true)
+	if !ok {
+		return
+	}
+	targetUserID, err := strconv.ParseUint(c.Param("userId"), 10, 64)
+	if err != nil || targetUserID == 0 {
+		response.Fail(c, response.ErrBadRequest)
+		return
+	}
+	var req assignTenantMemberRoleRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, response.ErrBadRequest)
+		return
+	}
+	member, err := h.service.AssignTenantMemberBusinessRole(c.Request.Context(), userID, tenantID, targetUserID, service.AssignTenantMemberRoleInput{RoleCode: req.RoleCode})
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.OK(c, member)
 }
 
 // setTenantStatus 复用启用/禁用租户逻辑，并统一响应租户状态。

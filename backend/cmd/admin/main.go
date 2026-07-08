@@ -160,8 +160,8 @@ func createPlatformAdmin(args []string) error {
 	platformRoleSvc := service.NewPlatformRoleService(tenantRepo, userRepo, service.NoopAuditRecorder{})
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := tenantSvc.BootstrapDefaultTenant(ctx); err != nil {
-		return fmt.Errorf("初始化租户与角色: %w", err)
+	if err := tenantSvc.EnsureBaseRoles(ctx); err != nil {
+		return fmt.Errorf("初始化基础角色: %w", err)
 	}
 
 	user, err := userRepo.FindByEmail(ctx, normalizedEmail)
