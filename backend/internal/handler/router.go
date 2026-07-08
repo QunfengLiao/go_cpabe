@@ -7,6 +7,7 @@ import (
 	"go-cpabe/backend/internal/service"
 )
 
+// Dependencies 汇总 HTTP 路由装配所需的 service、中间件依赖和上传限制。
 type Dependencies struct {
 	AuthService               *service.AuthService
 	UserService               *service.UserService
@@ -21,6 +22,7 @@ type Dependencies struct {
 	MaxAvatarSize             int64
 }
 
+// NewRouter 创建 Gin 路由，注册认证、用户、租户、平台后台和健康检查接口。
 func NewRouter(deps Dependencies) *gin.Engine {
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery(), middleware.CORS())

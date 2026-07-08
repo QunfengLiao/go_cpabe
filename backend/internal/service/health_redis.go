@@ -10,6 +10,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// CheckRedis 检查 Redis 连接是否可 ping 通，并把初始化错误转换为依赖健康状态。
 func CheckRedis(ctx context.Context, client *redis.Client, initErr error) model.DependencyHealth {
 	if initErr != nil {
 		return dependencyError(initErr)

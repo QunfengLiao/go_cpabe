@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 )
 
+// OpenMySQL 使用仓储层配置打开 MySQL 连接，并设置连接池边界。
 func OpenMySQL(cfg config.Config) (*gorm.DB, error) {
 	if cfg.MySQLDSN == "" {
 		return nil, fmt.Errorf("mysql config missing: MYSQL_DSN or MYSQL_* variables are required")

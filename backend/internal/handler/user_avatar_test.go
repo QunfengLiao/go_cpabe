@@ -5,6 +5,7 @@ import (
 	"testing"
 )
 
+// TestUploadAvatarEndpoint 验证头像上传接口的成功路径和文件校验。
 func TestUploadAvatarEndpoint(t *testing.T) {
 	app := newTestApp()
 	access, _ := registerAndLogin(t, app)

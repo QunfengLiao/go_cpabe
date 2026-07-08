@@ -11,15 +11,20 @@ import (
 )
 
 const (
-	ContextTenantID    = "tenant_id"
+	// ContextTenantID 是租户中间件写入 gin.Context 的当前租户 ID 键。
+	ContextTenantID = "tenant_id"
+	// ContextTenantRoles 是租户中间件写入 gin.Context 的当前租户内角色列表键。
 	ContextTenantRoles = "tenant_roles"
-	ContextTenantCode  = "tenant_code"
+	// ContextTenantCode 是租户中间件写入 gin.Context 的当前租户编码键。
+	ContextTenantCode = "tenant_code"
 )
 
+// TenantResolver 定义租户中间件校验租户上下文所需的服务能力。
 type TenantResolver interface {
 	ResolveTenantContext(ctx context.Context, userID uint64, tenantID uint64) (*domain.Tenant, []domain.RoleCode, error)
 }
 
+// TenantRequired 从 X-Tenant-Id 读取租户选择，校验成员关系后写入当前租户上下文。
 func TenantRequired(tenants TenantResolver) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID, ok := currentUserID(c)
@@ -59,6 +64,7 @@ func TenantRequired(tenants TenantResolver) gin.HandlerFunc {
 	}
 }
 
+// currentUserID 从 gin.Context 读取认证中间件写入的用户 ID。
 func currentUserID(c *gin.Context) (uint64, bool) {
 	value, ok := c.Get(ContextUserID)
 	if !ok {
@@ -68,6 +74,7 @@ func currentUserID(c *gin.Context) (uint64, bool) {
 	return id, ok
 }
 
+// CurrentTenantID 从 gin.Context 读取当前租户 ID，供后续 handler 或 service 装配使用。
 func CurrentTenantID(c *gin.Context) (uint64, bool) {
 	value, ok := c.Get(ContextTenantID)
 	if !ok {

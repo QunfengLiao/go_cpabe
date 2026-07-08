@@ -8,6 +8,7 @@ import (
 	"go-cpabe/backend/internal/pkg/auth"
 )
 
+// TestBootstrapDefaultTenantIsIdempotent 验证默认租户 bootstrap 多次执行仍保持基础数据幂等。
 func TestBootstrapDefaultTenantIsIdempotent(t *testing.T) {
 	users := newMemoryUserRepo()
 	tenantRepo := newMemoryTenantRepo()

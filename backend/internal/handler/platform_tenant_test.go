@@ -8,6 +8,7 @@ import (
 	"go-cpabe/backend/internal/pkg/auth"
 )
 
+// TestPlatformTenantEndpointsRequirePlatformAdmin 验证平台租户接口必须具备平台管理员角色。
 func TestPlatformTenantEndpointsRequirePlatformAdmin(t *testing.T) {
 	app := newTestApp()
 	tenantAdminAccess := createAdminAndLogin(t, app)
@@ -24,6 +25,7 @@ func TestPlatformTenantEndpointsRequirePlatformAdmin(t *testing.T) {
 	}
 }
 
+// TestPlatformTenantLifecycle 验证平台租户创建、详情和启停生命周期。
 func TestPlatformTenantLifecycle(t *testing.T) {
 	app := newTestApp()
 	platformAccess := createPlatformAdminAndLogin(t, app)
@@ -60,6 +62,7 @@ func TestPlatformTenantLifecycle(t *testing.T) {
 	}
 }
 
+// TestPlatformTenantUsersAndAdmins 验证平台后台成员添加和租户管理员授予/撤销。
 func TestPlatformTenantUsersAndAdmins(t *testing.T) {
 	app := newTestApp()
 	platformAccess := createPlatformAdminAndLogin(t, app)
@@ -87,6 +90,7 @@ func TestPlatformTenantUsersAndAdmins(t *testing.T) {
 	}
 }
 
+// createPlatformAdminAndLogin 创建平台管理员测试用户并返回登录 access token。
 func createPlatformAdminAndLogin(t *testing.T, app testApp) string {
 	t.Helper()
 	hash, err := auth.HashPassword("Passw0rd!")

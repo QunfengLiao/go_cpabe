@@ -7,14 +7,17 @@ import (
 	"go-cpabe/backend/internal/service"
 )
 
+// AuthHandler 负责认证相关 HTTP 请求的参数绑定和响应包装。
 type AuthHandler struct {
 	service *service.AuthService
 }
 
+// NewAuthHandler 创建认证 Handler。
 func NewAuthHandler(service *service.AuthService) *AuthHandler {
 	return &AuthHandler{service: service}
 }
 
+// registerRequest 是注册接口请求体，Role 仅允许公开可注册角色。
 type registerRequest struct {
 	Email           string          `json:"email"`
 	Password        string          `json:"password"`
@@ -23,6 +26,7 @@ type registerRequest struct {
 	Role            domain.UserRole `json:"role"`
 }
 
+// loginRequest 是登录接口请求体，同时兼容 camelCase 和 snake_case 租户编码字段。
 type loginRequest struct {
 	Email           string `json:"email"`
 	Password        string `json:"password"`
@@ -30,14 +34,17 @@ type loginRequest struct {
 	TenantCodeSnake string `json:"tenant_code"`
 }
 
+// refreshRequest 是刷新 access token 的请求体。
 type refreshRequest struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
+// logoutRequest 是退出登录的请求体，必须携带要失效的 refresh token。
 type logoutRequest struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
+// Register 处理用户公开注册请求，成功后返回不含密码字段的用户信息。
 func (h *AuthHandler) Register(c *gin.Context) {
 	var req registerRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -58,6 +65,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	response.Created(c, gin.H{"user": user})
 }
 
+// Login 处理用户登录请求，成功后返回 token、用户信息和租户上下文。
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req loginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -89,6 +97,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	})
 }
 
+// firstNonEmpty 返回第一个非空字符串，用于兼容不同前端字段命名。
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if value != "" {
@@ -98,6 +107,7 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
+// Refresh 处理 Refresh Token 轮换请求，成功后返回新的 token 组合。
 func (h *AuthHandler) Refresh(c *gin.Context) {
 	var req refreshRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -126,6 +136,7 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 	})
 }
 
+// Logout 处理退出登录请求，成功后删除服务端刷新会话。
 func (h *AuthHandler) Logout(c *gin.Context) {
 	var req logoutRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

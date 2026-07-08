@@ -11,16 +11,19 @@ import (
 	"go-cpabe/backend/internal/pkg/response"
 )
 
+// tenantValidatorStub 是租户中间件测试使用的可控校验桩。
 type tenantValidatorStub struct {
 	tenant *domain.Tenant
 	roles  []domain.RoleCode
 	err    error
 }
 
+// ResolveTenantContext 模拟租户上下文校验结果，供中间件测试控制成功或失败路径。
 func (s tenantValidatorStub) ResolveTenantContext(_ context.Context, _ uint64, _ uint64) (*domain.Tenant, []domain.RoleCode, error) {
 	return s.tenant, s.roles, s.err
 }
 
+// TestTenantRequiredRejectsMissingTenant 验证缺失 X-Tenant-Id 时租户中间件拒绝请求。
 func TestTenantRequiredRejectsMissingTenant(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
@@ -37,6 +40,7 @@ func TestTenantRequiredRejectsMissingTenant(t *testing.T) {
 	}
 }
 
+// TestTenantRequiredStoresTenantContext 验证租户校验成功后会把租户 ID 写入 gin.Context。
 func TestTenantRequiredStoresTenantContext(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
@@ -58,6 +62,7 @@ func TestTenantRequiredStoresTenantContext(t *testing.T) {
 	}
 }
 
+// TestTenantRequiredRejectsForbiddenTenant 验证租户成员校验失败时请求会被中断。
 func TestTenantRequiredRejectsForbiddenTenant(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()

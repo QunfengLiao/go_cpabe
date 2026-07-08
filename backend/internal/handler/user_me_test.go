@@ -5,6 +5,7 @@ import (
 	"testing"
 )
 
+// TestMeEndpoint 验证当前用户资料接口需要 access token 并隐藏敏感字段。
 func TestMeEndpoint(t *testing.T) {
 	app := newTestApp()
 	access, refresh := registerAndLogin(t, app)

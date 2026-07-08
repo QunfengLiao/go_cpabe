@@ -69,10 +69,11 @@ BASE_URL=http://localhost:18080/api/v1 ./scripts/verify_auth_flow.sh
 
 ## 代码注释要求
 
-后续修改核心业务代码时，需要遵守项目宪章中的 AI 协作与代码注释规范。涉及认证、Token、
-密码、文件上传和访问控制的逻辑，应使用必要中文注释说明设计原因和安全边界，避免无意义
-逐行注释。
+后续修改 Go 业务代码时，需要遵守项目宪章中的 AI 协作与代码注释规范。每个函数和方法前
+都必须有中文注释；导出的函数、方法、类型、接口、常量和变量必须符合 GoDoc 规范，注释
+必须以标识符名称开头。
 
 新增或修改 Service、Repository、Handler/Middleware 中的业务规则，以及 Crypto、Policy、
-Benchmark、Audit 相关实现后，必须执行“关键注释和可读性检查”。检查重点是确认注释解释
-风险点和取舍，而不是重复代码表面行为。
+Benchmark、Audit 相关实现后，必须执行“关键注释和可读性检查”。检查重点是确认实体字段、
+Handler、Service、Repository、Middleware 的注释解释了业务语义、副作用、风险点、安全边界
+和关键取舍，而不是重复代码表面行为。

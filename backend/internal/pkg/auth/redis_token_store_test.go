@@ -9,6 +9,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// TestRedisTokenStoreRotate 验证 Redis 刷新会话轮换会删除旧会话并保存新会话。
 func TestRedisTokenStoreRotate(t *testing.T) {
 	server := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: server.Addr()})

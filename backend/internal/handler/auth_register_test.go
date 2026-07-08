@@ -5,6 +5,7 @@ import (
 	"testing"
 )
 
+// TestRegisterEndpoint 验证注册接口响应结构并确保敏感字段不泄露。
 func TestRegisterEndpoint(t *testing.T) {
 	app := newTestApp()
 	ok := performJSON(app.router, http.MethodPost, "/api/v1/auth/register", map[string]any{
@@ -30,10 +31,12 @@ func TestRegisterEndpoint(t *testing.T) {
 	}
 }
 
+// containsSensitive 判断响应体是否包含不应暴露的敏感字段名。
 func containsSensitive(body string) bool {
 	return bytesContains(body, "password_hash") || bytesContains(body, "avatar_object_key")
 }
 
+// bytesContains 在字符串中查找子串，用于轻量响应体断言。
 func bytesContains(body, sub string) bool {
 	for i := 0; i+len(sub) <= len(body); i++ {
 		if body[i:i+len(sub)] == sub {

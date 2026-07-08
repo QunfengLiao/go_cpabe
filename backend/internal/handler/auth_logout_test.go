@@ -5,6 +5,7 @@ import (
 	"testing"
 )
 
+// TestLogoutEndpointInvalidatesRefreshToken 验证退出登录接口会删除刷新会话。
 func TestLogoutEndpointInvalidatesRefreshToken(t *testing.T) {
 	app := newTestApp()
 	_, refresh := registerAndLogin(t, app)

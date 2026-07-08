@@ -18,6 +18,7 @@ import (
 	"go-cpabe/backend/internal/service"
 )
 
+// main 提供本地受控管理员初始化命令，避免通过公开注册接口创建高权限账号。
 func main() {
 	log.SetFlags(0)
 	if len(os.Args) < 2 {
@@ -40,6 +41,7 @@ func main() {
 	}
 }
 
+// createAdmin 创建旧单租户管理员账号，并写入默认租户兼容授权。
 func createAdmin(args []string) error {
 	fs := flag.NewFlagSet("create", flag.ContinueOnError)
 	email := fs.String("email", "", "管理员邮箱")
@@ -115,6 +117,7 @@ func createAdmin(args []string) error {
 	return nil
 }
 
+// createPlatformAdmin 创建或提升平台管理员账号，副作用是写入 users 和 user_roles。
 func createPlatformAdmin(args []string) error {
 	fs := flag.NewFlagSet("create-platform", flag.ContinueOnError)
 	email := fs.String("email", "", "平台管理员邮箱")
@@ -193,6 +196,7 @@ func createPlatformAdmin(args []string) error {
 	return nil
 }
 
+// usage 输出本地管理员命令的用法说明，供命令参数错误时提示操作者。
 func usage() {
 	fmt.Fprintln(os.Stderr, "用法:")
 	fmt.Fprintln(os.Stderr, "  ADMIN_PASSWORD='Admin@123456' go run ./cmd/admin create -email admin@example.com -nickname 管理员")

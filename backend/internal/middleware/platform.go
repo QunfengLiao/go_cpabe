@@ -8,10 +8,12 @@ import (
 	"go-cpabe/backend/internal/pkg/response"
 )
 
+// PlatformRoleResolver 定义平台后台中间件校验平台角色所需的查询能力。
 type PlatformRoleResolver interface {
 	HasRole(ctx context.Context, userID uint64, tenantID *uint64, roleCode domain.RoleCode) (bool, error)
 }
 
+// PlatformAdminRequired 拦截平台后台接口，只允许拥有 tenant_id IS NULL 平台管理员角色的用户访问。
 func PlatformAdminRequired(roles PlatformRoleResolver) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID, ok := currentUserID(c)

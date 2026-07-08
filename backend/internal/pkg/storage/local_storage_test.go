@@ -6,6 +6,7 @@ import (
 	"testing"
 )
 
+// TestLocalStorageSaveAvatar 验证本地头像存储会生成 URL 和对象键并写入文件。
 func TestLocalStorageSaveAvatar(t *testing.T) {
 	dir := t.TempDir()
 	store := NewLocalStorage(dir, "/uploads/avatars")

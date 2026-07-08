@@ -8,6 +8,7 @@ import (
 	"go-cpabe/backend/internal/domain"
 )
 
+// TestLoginEndpoint 验证登录接口返回 token、用户信息和租户上下文。
 func TestLoginEndpoint(t *testing.T) {
 	app := newTestApp()
 	performJSON(app.router, http.MethodPost, "/api/v1/auth/register", map[string]any{

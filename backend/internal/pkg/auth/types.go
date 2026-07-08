@@ -7,6 +7,7 @@ import (
 	"go-cpabe/backend/internal/domain"
 )
 
+// Claims 是 access token 中携带的短期身份声明。
 type Claims struct {
 	UserID    uint64          `json:"user_id"`
 	Role      domain.UserRole `json:"role"`
@@ -14,6 +15,7 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
+// TokenPair 是登录或刷新成功后返回给客户端的一组访问凭证。
 type TokenPair struct {
 	AccessToken           string    `json:"access_token"`
 	AccessTokenExpiresIn  int64     `json:"access_token_expires_in"`
@@ -24,6 +26,7 @@ type TokenPair struct {
 	RefreshExpiresAt      time.Time `json:"-"`
 }
 
+// RefreshSession 是服务端保存的刷新会话，只存 Refresh Token 哈希，不存明文 token。
 type RefreshSession struct {
 	UserID           uint64          `json:"user_id"`
 	Role             domain.UserRole `json:"role"`
@@ -35,6 +38,7 @@ type RefreshSession struct {
 	ClientIP         string          `json:"client_ip,omitempty"`
 }
 
+// RefreshTokenParts 是解析 refresh token 后得到的定位 ID 和客户端 secret。
 type RefreshTokenParts struct {
 	TokenID string
 	Secret  string

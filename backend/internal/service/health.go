@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm"
 )
 
+// HealthService 负责聚合应用、MySQL 和 Redis 的健康状态。
 type HealthService struct {
 	appEnv   string
 	mysql    *gorm.DB
@@ -21,6 +22,7 @@ type HealthService struct {
 	now      func() time.Time
 }
 
+// NewHealthService 创建健康检查服务，允许注入依赖初始化错误以便启动后展示降级状态。
 func NewHealthService(cfg config.Config, mysql *gorm.DB, mysqlErr error, redis *redis.Client, redisErr error) *HealthService {
 	return &HealthService{
 		appEnv:   cfg.AppEnv,
@@ -32,6 +34,7 @@ func NewHealthService(cfg config.Config, mysql *gorm.DB, mysqlErr error, redis *
 	}
 }
 
+// Check 执行一次健康检查并返回聚合状态，任一依赖异常时整体状态为 degraded。
 func (s *HealthService) Check(ctx context.Context) model.HealthResponse {
 	mysqlHealth := CheckMySQL(ctx, s.mysql, s.mysqlErr)
 	redisHealth := CheckRedis(ctx, s.redis, s.redisErr)
@@ -53,6 +56,7 @@ func (s *HealthService) Check(ctx context.Context) model.HealthResponse {
 	}
 }
 
+// dependencyError 将依赖异常转换为统一响应模型，并在返回前做敏感信息脱敏。
 func dependencyError(err error) model.DependencyHealth {
 	message := "dependency unavailable"
 	if err != nil {
@@ -62,11 +66,13 @@ func dependencyError(err error) model.DependencyHealth {
 	return model.DependencyHealth{Status: "error", Message: message}
 }
 
+// sanitizeError 对可能包含密码、token 或 secret 的依赖错误信息进行脱敏。
 func sanitizeError(message string) string {
 	sensitiveMarkers := []string{"password", "passwd", "pwd=", "token", "secret", "MYSQL_PASSWORD", "REDIS_PASSWORD"}
 	lower := strings.ToLower(message)
 	for _, marker := range sensitiveMarkers {
 		if strings.Contains(lower, strings.ToLower(marker)) {
+			// 健康检查会直接暴露给运维或前端，连接串/密钥类错误必须脱敏后再返回。
 			return "dependency connection failed: sensitive details hidden"
 		}
 	}

@@ -10,11 +10,13 @@ import (
 	"go-cpabe/backend/internal/repository"
 )
 
+// TenantService 负责普通租户上下文、成员管理和旧角色迁移逻辑。
 type TenantService struct {
 	tenants repository.TenantRepository
 	users   repository.UserRepository
 }
 
+// CreateTenantInput 表示创建租户时允许提交的业务字段。
 type CreateTenantInput struct {
 	Name        string
 	Code        string
@@ -22,11 +24,13 @@ type CreateTenantInput struct {
 	Description string
 }
 
+// AddTenantUserInput 表示向租户添加用户时的目标用户和待授予租户角色。
 type AddTenantUserInput struct {
 	UserID uint64
 	Roles  []domain.RoleCode
 }
 
+// demoTenants 是开发演示环境默认写入的租户集合。
 var demoTenants = []domain.Tenant{
 	{Name: "四川师范大学", Code: "scnu", Status: domain.TenantStatusEnabled, Description: "科研数据安全共享演示租户"},
 	{Name: "深信服科技", Code: "sangfor", Status: domain.TenantStatusEnabled, Description: "企业安全协作演示租户"},
@@ -34,11 +38,14 @@ var demoTenants = []domain.Tenant{
 	{Name: "默认租户", Code: domain.DefaultTenantCode, Status: domain.TenantStatusEnabled, Description: "用于承接单租户阶段的历史用户和演示数据"},
 }
 
+// NewTenantService 创建租户服务，依赖租户仓储和用户仓储完成权限校验。
 func NewTenantService(tenants repository.TenantRepository, users repository.UserRepository) *TenantService {
 	return &TenantService{tenants: tenants, users: users}
 }
 
+// BootstrapDefaultTenant 幂等写入基础角色、演示租户，并为历史用户补齐默认租户关系。
 func (s *TenantService) BootstrapDefaultTenant(ctx context.Context) error {
+	// Bootstrap 必须幂等：开发环境会在每次启动时执行，不能因为重复 seed 破坏已有租户和授权。
 	if err := s.EnsureBaseRoles(ctx); err != nil {
 		return err
 	}
@@ -52,6 +59,8 @@ func (s *TenantService) BootstrapDefaultTenant(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// 历史用户没有 tenant_users/user_roles 记录时无法进入多租户上下文，
+	// 因此启动时做一次兼容性补齐，后续可迁移为独立 seed 命令。
 	for _, user := range users {
 		if err := s.EnsureUserInDefaultTenant(ctx, user.ID, user.Role); err != nil {
 			return err
@@ -60,6 +69,7 @@ func (s *TenantService) BootstrapDefaultTenant(ctx context.Context) error {
 	return nil
 }
 
+// EnsureBaseRoles 幂等写入平台管理员、租户管理员、DO、DU 等基础角色定义。
 func (s *TenantService) EnsureBaseRoles(ctx context.Context) error {
 	roles := []domain.Role{
 		{Code: domain.RolePlatformAdmin, Name: "平台管理员", Scope: domain.RoleScopePlatform, Description: "预留的平台级租户管理角色"},
@@ -75,6 +85,7 @@ func (s *TenantService) EnsureBaseRoles(ctx context.Context) error {
 	return nil
 }
 
+// EnsureUserInDefaultTenant 将用户加入默认租户，并把旧单租户角色映射为租户内角色。
 func (s *TenantService) EnsureUserInDefaultTenant(ctx context.Context, userID uint64, legacyRole domain.UserRole) error {
 	tenant, err := s.tenants.EnsureTenant(ctx, &domain.Tenant{
 		Name:        "默认租户",
@@ -96,6 +107,7 @@ func (s *TenantService) EnsureUserInDefaultTenant(ctx context.Context, userID ui
 	return s.tenants.EnsureUserRole(ctx, &tenant.ID, userID, role)
 }
 
+// TenantContextForUser 返回用户可进入的租户列表，只有一个租户时自动设置当前租户。
 func (s *TenantService) TenantContextForUser(ctx context.Context, userID uint64) (domain.TenantContextDTO, error) {
 	tenants, err := s.tenants.ListTenantsByUser(ctx, userID)
 	if err != nil {
@@ -118,16 +130,19 @@ func (s *TenantService) TenantContextForUser(ctx context.Context, userID uint64)
 	var current *uint64
 	var currentCode *string
 	if len(items) == 1 {
+		// 只有一个可用租户时自动选中，避免前端在最常见的单租户演示场景里多做一次切换。
 		current = &items[0].TenantID
 		currentCode = &items[0].TenantCode
 	}
 	return domain.TenantContextDTO{CurrentTenantID: current, CurrentTenantCode: currentCode, Tenants: items}, nil
 }
 
+// PlatformRolesForUser 返回用户拥有的平台级角色，仅用于前端展示和菜单初始化。
 func (s *TenantService) PlatformRolesForUser(ctx context.Context, userID uint64) ([]domain.RoleCode, error) {
 	return s.tenants.ListPlatformRoleCodes(ctx, userID)
 }
 
+// TenantContextForUserByCode 校验登录时选择的租户编码，并返回带当前租户的上下文。
 func (s *TenantService) TenantContextForUserByCode(ctx context.Context, userID uint64, tenantCode string) (domain.TenantContextDTO, error) {
 	code := strings.ToLower(strings.TrimSpace(tenantCode))
 	if code == "" {
@@ -153,6 +168,7 @@ func (s *TenantService) TenantContextForUserByCode(ctx context.Context, userID u
 	return context, nil
 }
 
+// SwitchTenant 校验用户租户成员关系后返回新的当前租户上下文。
 func (s *TenantService) SwitchTenant(ctx context.Context, userID uint64, tenantID uint64) (domain.SwitchTenantDTO, error) {
 	tenant, roles, err := s.ResolveTenantContext(ctx, userID, tenantID)
 	if err != nil {
@@ -172,6 +188,7 @@ func (s *TenantService) SwitchTenant(ctx context.Context, userID uint64, tenantI
 	}, nil
 }
 
+// ResolveTenantContext 校验租户存在、已启用且用户是 active 成员，并返回租户内角色。
 func (s *TenantService) ResolveTenantContext(ctx context.Context, userID uint64, tenantID uint64) (*domain.Tenant, []domain.RoleCode, error) {
 	tenant, err := s.tenants.FindTenantByID(ctx, tenantID)
 	if err != nil {
@@ -183,6 +200,7 @@ func (s *TenantService) ResolveTenantContext(ctx context.Context, userID uint64,
 	if tenant.Status != domain.TenantStatusEnabled {
 		return nil, nil, response.ErrTenantDisabled
 	}
+	// 租户上下文不能只信任 token 或请求头；每次切换/访问都重新校验成员关系和租户状态。
 	member, err := s.tenants.FindTenantUser(ctx, tenantID, userID)
 	if err != nil {
 		if errors.Is(err, repository.ErrTenantMemberMissing) {
@@ -200,6 +218,7 @@ func (s *TenantService) ResolveTenantContext(ctx context.Context, userID uint64,
 	return tenant, roles, nil
 }
 
+// CreateTenant 为有平台或旧管理员权限的用户创建租户。
 func (s *TenantService) CreateTenant(ctx context.Context, actorID uint64, input CreateTenantInput) (domain.TenantDTO, error) {
 	if err := s.ensurePlatformOrLegacyAdmin(ctx, actorID); err != nil {
 		return domain.TenantDTO{}, err
@@ -228,6 +247,7 @@ func (s *TenantService) CreateTenant(ctx context.Context, actorID uint64, input 
 	return toTenantDTO(*tenant, nil), nil
 }
 
+// ListTenants 按调用者权限返回所有租户或调用者所属租户。
 func (s *TenantService) ListTenants(ctx context.Context, actorID uint64) ([]domain.TenantDTO, error) {
 	if err := s.ensurePlatformOrLegacyAdmin(ctx, actorID); err == nil {
 		tenants, err := s.tenants.ListTenants(ctx)
@@ -243,6 +263,7 @@ func (s *TenantService) ListTenants(ctx context.Context, actorID uint64) ([]doma
 	return context.Tenants, nil
 }
 
+// TenantDetail 校验调用者管理权限后返回指定租户详情。
 func (s *TenantService) TenantDetail(ctx context.Context, actorID uint64, tenantID uint64) (domain.TenantDTO, error) {
 	if err := s.ensureTenantManager(ctx, actorID, tenantID); err != nil {
 		return domain.TenantDTO{}, err
@@ -257,6 +278,7 @@ func (s *TenantService) TenantDetail(ctx context.Context, actorID uint64, tenant
 	return toTenantDTO(*tenant, nil), nil
 }
 
+// SetTenantStatus 校验平台或旧管理员权限后更新租户启用状态。
 func (s *TenantService) SetTenantStatus(ctx context.Context, actorID uint64, tenantID uint64, status domain.TenantStatus) (domain.TenantDTO, error) {
 	if err := s.ensurePlatformOrLegacyAdmin(ctx, actorID); err != nil {
 		return domain.TenantDTO{}, err
@@ -271,6 +293,7 @@ func (s *TenantService) SetTenantStatus(ctx context.Context, actorID uint64, ten
 	return toTenantDTO(*tenant, nil), nil
 }
 
+// AddTenantUser 校验租户管理权限后添加成员并授予租户内角色。
 func (s *TenantService) AddTenantUser(ctx context.Context, actorID uint64, tenantID uint64, input AddTenantUserInput) (domain.TenantMemberDTO, error) {
 	if err := s.ensureTenantManager(ctx, actorID, tenantID); err != nil {
 		return domain.TenantMemberDTO{}, err
@@ -283,6 +306,7 @@ func (s *TenantService) AddTenantUser(ctx context.Context, actorID uint64, tenan
 	}
 	for _, role := range input.Roles {
 		if !role.Valid() || !role.TenantScoped() {
+			// 租户成员接口只能授予租户内角色，平台角色必须走受控的平台授权路径。
 			return domain.TenantMemberDTO{}, response.ErrInvalidRole
 		}
 		if err := s.tenants.EnsureUserRole(ctx, &tenantID, input.UserID, role); err != nil {
@@ -301,6 +325,7 @@ func (s *TenantService) AddTenantUser(ctx context.Context, actorID uint64, tenan
 	return domain.TenantMemberDTO{}, response.ErrBadRequest
 }
 
+// RemoveTenantUser 校验租户管理权限后停用指定成员关系。
 func (s *TenantService) RemoveTenantUser(ctx context.Context, actorID uint64, tenantID uint64, userID uint64) error {
 	if err := s.ensureTenantManager(ctx, actorID, tenantID); err != nil {
 		return err
@@ -308,6 +333,7 @@ func (s *TenantService) RemoveTenantUser(ctx context.Context, actorID uint64, te
 	return s.tenants.RemoveTenantUser(ctx, tenantID, userID)
 }
 
+// ListTenantUsers 校验租户管理权限后返回租户成员列表。
 func (s *TenantService) ListTenantUsers(ctx context.Context, actorID uint64, tenantID uint64) ([]domain.TenantMemberDTO, error) {
 	if err := s.ensureTenantManager(ctx, actorID, tenantID); err != nil {
 		return nil, err
@@ -323,10 +349,12 @@ func (s *TenantService) ListTenantUsers(ctx context.Context, actorID uint64, ten
 	return result, nil
 }
 
+// ensureTenantManager 校验用户是否具备指定租户的管理权限。
 func (s *TenantService) ensureTenantManager(ctx context.Context, userID uint64, tenantID uint64) error {
 	if err := s.ensurePlatformOrLegacyAdmin(ctx, userID); err == nil {
 		return nil
 	}
+	// 租户管理员权限必须绑定到具体 tenant_id，避免 A 租户管理员跨租户管理 B 租户。
 	ok, err := s.tenants.HasRole(ctx, userID, &tenantID, domain.RoleTenantAdmin)
 	if err != nil {
 		return err
@@ -337,6 +365,7 @@ func (s *TenantService) ensureTenantManager(ctx context.Context, userID uint64, 
 	return nil
 }
 
+// ensurePlatformOrLegacyAdmin 校验平台管理员角色，并兼容旧 users.role 中的 admin。
 func (s *TenantService) ensurePlatformOrLegacyAdmin(ctx context.Context, userID uint64) error {
 	ok, err := s.tenants.HasRole(ctx, userID, nil, domain.RolePlatformAdmin)
 	if err != nil {
@@ -345,6 +374,7 @@ func (s *TenantService) ensurePlatformOrLegacyAdmin(ctx context.Context, userID 
 	if ok {
 		return nil
 	}
+	// 兼容旧数据中的 admin 字段；新授权应优先写入 user_roles 的平台角色。
 	user, err := s.users.FindByID(ctx, userID)
 	if err != nil {
 		return response.ErrTenantPermissionDenied
@@ -355,10 +385,12 @@ func (s *TenantService) ensurePlatformOrLegacyAdmin(ctx context.Context, userID 
 	return response.ErrTenantPermissionDenied
 }
 
+// toTenantDTO 将租户实体转换为对外 DTO，并附带调用方传入的角色列表。
 func toTenantDTO(tenant domain.Tenant, roles []domain.RoleCode) domain.TenantDTO {
 	return domain.TenantDTO{TenantID: tenant.ID, TenantName: tenant.Name, TenantCode: tenant.Code, Status: tenant.Status, Roles: roles}
 }
 
+// toTenantDTOs 批量转换租户实体列表，用于列表接口响应。
 func toTenantDTOs(tenants []domain.Tenant) []domain.TenantDTO {
 	result := make([]domain.TenantDTO, 0, len(tenants))
 	for _, tenant := range tenants {
@@ -367,6 +399,7 @@ func toTenantDTOs(tenants []domain.Tenant) []domain.TenantDTO {
 	return result
 }
 
+// toTenantMemberDTO 将仓储层成员聚合记录转换为对外成员 DTO。
 func toTenantMemberDTO(member repository.TenantMemberRecord) domain.TenantMemberDTO {
 	return domain.TenantMemberDTO{
 		UserID:       member.UserID,

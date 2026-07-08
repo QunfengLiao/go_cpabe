@@ -11,6 +11,7 @@ import (
 	"github.com/joho/godotenv"
 )
 
+// Config 汇总后端运行所需的数据库、Redis、JWT、HTTP 和头像上传配置。
 type Config struct {
 	AppEnv          string
 	MySQLDSN        string
@@ -26,6 +27,7 @@ type Config struct {
 	AvatarMaxSize   int64
 }
 
+// Load 从环境变量和可选 .env 文件中加载运行配置，并校验必要的密钥和数据库连接信息。
 func Load() (Config, error) {
 	if err := loadDotEnv(); err != nil {
 		return Config{}, err
@@ -68,6 +70,7 @@ func Load() (Config, error) {
 	return cfg, nil
 }
 
+// loadDotEnv 从当前工作目录向上查找 .env 文件并加载，找不到时允许继续使用系统环境变量。
 func loadDotEnv() error {
 	envPath, err := findFileUpwards(".env")
 	if err != nil {
@@ -85,6 +88,7 @@ func loadDotEnv() error {
 	return nil
 }
 
+// findFileUpwards 从当前目录逐级向父目录查找指定文件，返回第一个命中的路径。
 func findFileUpwards(filename string) (string, error) {
 	dir, err := os.Getwd()
 	if err != nil {
@@ -105,6 +109,7 @@ func findFileUpwards(filename string) (string, error) {
 	}
 }
 
+// getenv 读取环境变量；当变量为空时返回调用方提供的默认值。
 func getenv(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -112,6 +117,7 @@ func getenv(key, fallback string) string {
 	return fallback
 }
 
+// serverAddrFromEnv 解析服务监听地址，优先使用 SERVER_ADDR，其次兼容 APP_PORT。
 func serverAddrFromEnv() string {
 	if v := getenv("SERVER_ADDR", ""); v != "" {
 		return v
@@ -122,6 +128,7 @@ func serverAddrFromEnv() string {
 	return ":8080"
 }
 
+// mysqlDSNFromEnv 解析 MySQL DSN，支持完整 MYSQL_DSN 或分散的主机、用户、密码配置。
 func mysqlDSNFromEnv() string {
 	if dsn := getenv("MYSQL_DSN", ""); dsn != "" {
 		return dsn
@@ -137,6 +144,7 @@ func mysqlDSNFromEnv() string {
 	return fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local", user, password, host, port, database)
 }
 
+// getenvInt 读取整数环境变量，未设置时返回默认值，格式错误时返回解析错误。
 func getenvInt(key string, fallback int) (int, error) {
 	value := os.Getenv(key)
 	if value == "" {
@@ -145,6 +153,7 @@ func getenvInt(key string, fallback int) (int, error) {
 	return strconv.Atoi(value)
 }
 
+// getenvInt64 读取 int64 环境变量，适合头像大小等容量类配置。
 func getenvInt64(key string, fallback int64) (int64, error) {
 	value := os.Getenv(key)
 	if value == "" {
@@ -153,6 +162,7 @@ func getenvInt64(key string, fallback int64) (int64, error) {
 	return strconv.ParseInt(value, 10, 64)
 }
 
+// getenvDuration 读取 Go duration 格式的环境变量，未设置时返回默认时长。
 func getenvDuration(key string, fallback time.Duration) (time.Duration, error) {
 	value := os.Getenv(key)
 	if value == "" {

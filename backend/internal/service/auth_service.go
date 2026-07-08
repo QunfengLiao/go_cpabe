@@ -12,6 +12,7 @@ import (
 	"go-cpabe/backend/internal/repository"
 )
 
+// RegisterInput 是公开注册接口传入 AuthService 的用户注册参数。
 type RegisterInput struct {
 	Email           string
 	Password        string
@@ -20,6 +21,7 @@ type RegisterInput struct {
 	Role            domain.UserRole
 }
 
+// LoginInput 是登录接口传入 AuthService 的凭证和客户端上下文。
 type LoginInput struct {
 	Email      string
 	Password   string
@@ -28,12 +30,14 @@ type LoginInput struct {
 	ClientIP   string
 }
 
+// RefreshInput 是刷新 token 时传入的 refresh token 和客户端上下文。
 type RefreshInput struct {
 	RefreshToken string
 	UserAgent    string
 	ClientIP     string
 }
 
+// AuthService 负责注册、登录、刷新和退出登录等认证业务。
 type AuthService struct {
 	users      repository.UserRepository
 	manager    *auth.Manager
@@ -42,6 +46,7 @@ type AuthService struct {
 	tenants    *TenantService
 }
 
+// NewAuthService 创建认证服务，可选 TenantService 用于注册和登录时补齐租户上下文。
 func NewAuthService(users repository.UserRepository, manager *auth.Manager, store auth.TokenStore, refreshTTL time.Duration, tenants ...*TenantService) *AuthService {
 	svc := &AuthService{users: users, manager: manager, store: store, refreshTTL: refreshTTL}
 	if len(tenants) > 0 {
@@ -50,6 +55,7 @@ func NewAuthService(users repository.UserRepository, manager *auth.Manager, stor
 	return svc
 }
 
+// Register 校验公开注册输入、写入密码哈希用户，并在多租户模式下补齐默认租户授权。
 func (s *AuthService) Register(ctx context.Context, input RegisterInput) (domain.UserDTO, error) {
 	if !validator.ValidEmail(input.Email) {
 		return domain.UserDTO{}, response.ErrInvalidEmail
@@ -64,6 +70,7 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (domain
 		return domain.UserDTO{}, response.ErrBadRequest
 	}
 	if input.Role == domain.RoleAdmin {
+		// 管理员身份只能通过本地受控命令创建，公开注册接口不能成为提权入口。
 		return domain.UserDTO{}, response.ErrAdminRegisterForbidden
 	}
 	if !input.Role.PublicRegistrable() {
@@ -89,6 +96,8 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (domain
 		return domain.UserDTO{}, err
 	}
 	if s.tenants != nil {
+		// 注册后立即写入默认租户，保证旧单租户角色能迁移到租户内授权模型，
+		// 否则用户登录后会拿不到任何可选租户。
 		if err := s.tenants.EnsureUserInDefaultTenant(ctx, user.ID, user.Role); err != nil {
 			return domain.UserDTO{}, err
 		}
@@ -96,6 +105,7 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (domain
 	return domain.ToUserDTO(*user, false), nil
 }
 
+// LoginResult 是登录成功后的聚合结果，包含 token、用户信息、租户上下文和平台角色。
 type LoginResult struct {
 	TokenPair     auth.TokenPair
 	User          domain.UserDTO
@@ -103,6 +113,7 @@ type LoginResult struct {
 	PlatformRoles []domain.RoleCode
 }
 
+// Login 校验邮箱密码和租户选择，签发 access/refresh token，并返回前端初始化所需上下文。
 func (s *AuthService) Login(ctx context.Context, input LoginInput) (LoginResult, error) {
 	user, err := s.users.FindByEmail(ctx, input.Email)
 	if err != nil {
@@ -136,6 +147,7 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (LoginResult,
 	return result, nil
 }
 
+// Refresh 校验 refresh token 明文与服务端会话哈希，成功后轮换长期会话并签发新 token。
 func (s *AuthService) Refresh(ctx context.Context, input RefreshInput) (auth.TokenPair, error) {
 	parts, err := auth.ParseRefreshToken(input.RefreshToken)
 	if err != nil {
@@ -146,6 +158,7 @@ func (s *AuthService) Refresh(ctx context.Context, input RefreshInput) (auth.Tok
 		return auth.TokenPair{}, response.ErrRefreshSessionNotFound
 	}
 	if session.RefreshTokenHash != auth.HashRefreshToken(input.RefreshToken) {
+		// Redis 中只保存 Refresh Token 的哈希；即使存储侧泄露，也不会暴露可直接使用的明文 token。
 		return auth.TokenPair{}, response.ErrRefreshTokenMismatch
 	}
 	user, err := s.users.FindByID(ctx, session.UserID)
@@ -153,11 +166,13 @@ func (s *AuthService) Refresh(ctx context.Context, input RefreshInput) (auth.Tok
 		return auth.TokenPair{}, response.ErrRefreshSessionNotFound
 	}
 	if user.Status == domain.StatusDisabled {
+		// 刷新时重新读取用户状态，让禁用用户的长期会话在下一次刷新时失效。
 		return auth.TokenPair{}, response.ErrUserDisabled
 	}
 	return s.issueTokenPair(ctx, user.ID, user.Role, parts.TokenID, input.UserAgent, input.ClientIP)
 }
 
+// Logout 校验 refresh token 归属后删除服务端会话，使该长期凭证立即失效。
 func (s *AuthService) Logout(ctx context.Context, refreshToken string) error {
 	parts, err := auth.ParseRefreshToken(refreshToken)
 	if err != nil {
@@ -168,11 +183,13 @@ func (s *AuthService) Logout(ctx context.Context, refreshToken string) error {
 		return response.ErrRefreshSessionNotFound
 	}
 	if session.RefreshTokenHash != auth.HashRefreshToken(refreshToken) {
+		// 登出也要求 token 明文与会话哈希匹配，避免攻击者仅凭 tokenID 删除他人会话。
 		return response.ErrRefreshTokenMismatch
 	}
 	return s.store.Delete(ctx, parts.TokenID)
 }
 
+// issueTokenPair 生成短期 access token 和长期 refresh session，oldTokenID 非空时执行会话轮换。
 func (s *AuthService) issueTokenPair(ctx context.Context, userID uint64, role domain.UserRole, oldTokenID string, userAgent string, clientIP string) (auth.TokenPair, error) {
 	access, accessExpiresAt, err := s.manager.GenerateAccessToken(userID, role)
 	if err != nil {
@@ -195,6 +212,7 @@ func (s *AuthService) issueTokenPair(ctx context.Context, userID uint64, role do
 		ClientIP:         clientIP,
 	}
 	if oldTokenID != "" {
+		// Refresh Token 使用轮换模型：旧 token 成功刷新后立即失效，降低被重放的窗口。
 		err = s.store.Rotate(ctx, oldTokenID, tokenID, session, s.refreshTTL)
 	} else {
 		err = s.store.Save(ctx, tokenID, session, s.refreshTTL)

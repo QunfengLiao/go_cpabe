@@ -8,6 +8,7 @@ import (
 	"go-cpabe/backend/internal/pkg/auth"
 )
 
+// TestTenantAdminEndpoints 验证租户管理员对成员管理接口的权限和行为。
 func TestTenantAdminEndpoints(t *testing.T) {
 	app := newTestApp()
 	adminAccess := createAdminAndLogin(t, app)
@@ -45,6 +46,7 @@ func TestTenantAdminEndpoints(t *testing.T) {
 	}
 }
 
+// createAdminAndLogin 创建旧管理员测试用户并返回登录 access token。
 func createAdminAndLogin(t *testing.T, app testApp) string {
 	t.Helper()
 	hash, err := auth.HashPassword("Passw0rd!")

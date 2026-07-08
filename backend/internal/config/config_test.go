@@ -6,6 +6,7 @@ import (
 	"testing"
 )
 
+// TestLoadFindsDotEnvUpwards 验证配置加载会从子目录向上查找 .env 文件。
 func TestLoadFindsDotEnvUpwards(t *testing.T) {
 	root := t.TempDir()
 	nested := filepath.Join(root, "backend", "cmd", "server")
@@ -55,6 +56,7 @@ func TestLoadFindsDotEnvUpwards(t *testing.T) {
 	}
 }
 
+// TestLoadRejectsInvalidRedisDB 验证 Redis DB 配置格式错误会阻止配置加载。
 func TestLoadRejectsInvalidRedisDB(t *testing.T) {
 	t.Setenv("JWT_SECRET", "test-secret")
 	t.Setenv("MYSQL_DSN", "root:pw@tcp(127.0.0.1:3306)/go_cpabe")

@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm"
 )
 
+// Dependencies 是旧版内部路由装配所需的配置和依赖健康状态。
 type Dependencies struct {
 	Config     config.Config
 	MySQL      *gorm.DB
@@ -20,6 +21,7 @@ type Dependencies struct {
 	RedisError error
 }
 
+// New 创建旧版内部路由入口，当前主要保留给早期健康检查集成代码兼容。
 func New(deps Dependencies) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery(), corsMiddleware())
@@ -32,6 +34,7 @@ func New(deps Dependencies) *gin.Engine {
 	return r
 }
 
+// corsMiddleware 是旧版路由使用的简化 CORS 中间件。
 func corsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Header("Access-Control-Allow-Origin", "*")

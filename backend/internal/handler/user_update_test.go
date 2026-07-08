@@ -5,6 +5,7 @@ import (
 	"testing"
 )
 
+// TestUpdateMeEndpoint 验证当前用户资料更新接口只更新允许字段。
 func TestUpdateMeEndpoint(t *testing.T) {
 	app := newTestApp()
 	access, _ := registerAndLogin(t, app)

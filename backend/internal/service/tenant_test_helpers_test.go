@@ -11,6 +11,7 @@ import (
 	"go-cpabe/backend/internal/repository"
 )
 
+// memoryTenantRepo 是租户服务单元测试使用的线程安全内存租户仓储。
 type memoryTenantRepo struct {
 	mu          sync.Mutex
 	nextTenant  uint64
@@ -25,6 +26,7 @@ type memoryTenantRepo struct {
 	assignments map[string]*domain.UserRoleAssignment
 }
 
+// newMemoryTenantRepo 创建租户服务测试用的内存租户仓储。
 func newMemoryTenantRepo() *memoryTenantRepo {
 	return &memoryTenantRepo{
 		nextTenant:  1,
@@ -40,10 +42,12 @@ func newMemoryTenantRepo() *memoryTenantRepo {
 	}
 }
 
+// memoryTenantMemberKey 生成测试仓储中的租户成员复合键。
 func memoryTenantMemberKey(tenantID, userID uint64) string {
 	return strconv.FormatUint(tenantID, 10) + ":" + strconv.FormatUint(userID, 10)
 }
 
+// memoryTenantRoleKey 生成测试仓储中的角色授权复合键，platform 表示平台级授权。
 func memoryTenantRoleKey(tenantID *uint64, userID, roleID uint64) string {
 	prefix := "platform"
 	if tenantID != nil {
@@ -52,6 +56,7 @@ func memoryTenantRoleKey(tenantID *uint64, userID, roleID uint64) string {
 	return prefix + ":" + strconv.FormatUint(userID, 10) + ":" + strconv.FormatUint(roleID, 10)
 }
 
+// FindTenantByID 在测试仓储中按租户 ID 查找租户。
 func (r *memoryTenantRepo) FindTenantByID(_ context.Context, tenantID uint64) (*domain.Tenant, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -63,6 +68,7 @@ func (r *memoryTenantRepo) FindTenantByID(_ context.Context, tenantID uint64) (*
 	return &copy, nil
 }
 
+// FindTenantByCode 在测试仓储中按租户编码查找租户。
 func (r *memoryTenantRepo) FindTenantByCode(_ context.Context, code string) (*domain.Tenant, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -74,6 +80,7 @@ func (r *memoryTenantRepo) FindTenantByCode(_ context.Context, code string) (*do
 	return &copy, nil
 }
 
+// CreateTenant 在测试仓储中创建租户并维护租户编码唯一索引。
 func (r *memoryTenantRepo) CreateTenant(_ context.Context, tenant *domain.Tenant) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -91,6 +98,7 @@ func (r *memoryTenantRepo) CreateTenant(_ context.Context, tenant *domain.Tenant
 	return nil
 }
 
+// UpdateTenantStatus 在测试仓储中更新租户启用状态。
 func (r *memoryTenantRepo) UpdateTenantStatus(_ context.Context, tenantID uint64, status domain.TenantStatus) (*domain.Tenant, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -103,6 +111,7 @@ func (r *memoryTenantRepo) UpdateTenantStatus(_ context.Context, tenantID uint64
 	return &copy, nil
 }
 
+// ListTenants 返回测试仓储中的全部租户。
 func (r *memoryTenantRepo) ListTenants(_ context.Context) ([]domain.Tenant, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -113,6 +122,7 @@ func (r *memoryTenantRepo) ListTenants(_ context.Context) ([]domain.Tenant, erro
 	return tenants, nil
 }
 
+// EnsureTenant 在测试仓储中幂等确保租户存在。
 func (r *memoryTenantRepo) EnsureTenant(ctx context.Context, tenant *domain.Tenant) (*domain.Tenant, error) {
 	if existing, err := r.FindTenantByCode(ctx, tenant.Code); err == nil {
 		return existing, nil
@@ -123,6 +133,7 @@ func (r *memoryTenantRepo) EnsureTenant(ctx context.Context, tenant *domain.Tena
 	return tenant, nil
 }
 
+// EnsureTenantUser 在测试仓储中幂等写入或恢复租户成员关系。
 func (r *memoryTenantRepo) EnsureTenantUser(_ context.Context, tenantID uint64, userID uint64, status domain.TenantUserStatus) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -136,6 +147,7 @@ func (r *memoryTenantRepo) EnsureTenantUser(_ context.Context, tenantID uint64, 
 	return nil
 }
 
+// RemoveTenantUser 在测试仓储中停用成员关系而不是删除记录。
 func (r *memoryTenantRepo) RemoveTenantUser(_ context.Context, tenantID uint64, userID uint64) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -145,6 +157,7 @@ func (r *memoryTenantRepo) RemoveTenantUser(_ context.Context, tenantID uint64, 
 	return nil
 }
 
+// FindTenantUser 在测试仓储中查找指定用户的租户成员关系。
 func (r *memoryTenantRepo) FindTenantUser(_ context.Context, tenantID uint64, userID uint64) (*domain.TenantUser, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -156,6 +169,7 @@ func (r *memoryTenantRepo) FindTenantUser(_ context.Context, tenantID uint64, us
 	return &copy, nil
 }
 
+// ListTenantsByUser 返回测试仓储中用户可访问的启用租户。
 func (r *memoryTenantRepo) ListTenantsByUser(_ context.Context, userID uint64) ([]domain.Tenant, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -172,6 +186,7 @@ func (r *memoryTenantRepo) ListTenantsByUser(_ context.Context, userID uint64) (
 	return tenants, nil
 }
 
+// ListTenantUsers 返回测试仓储中指定租户的成员和角色聚合记录。
 func (r *memoryTenantRepo) ListTenantUsers(_ context.Context, tenantID uint64) ([]repository.TenantMemberRecord, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -184,6 +199,44 @@ func (r *memoryTenantRepo) ListTenantUsers(_ context.Context, tenantID uint64) (
 	return records, nil
 }
 
+// ListTenantUsageStats 返回测试仓储中的租户成员数和活跃管理员数，模拟数据库聚合查询。
+func (r *memoryTenantRepo) ListTenantUsageStats(_ context.Context) ([]repository.TenantUsageStats, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	statsByTenantID := map[uint64]*repository.TenantUsageStats{}
+	for _, member := range r.members {
+		stats, ok := statsByTenantID[member.TenantID]
+		if !ok {
+			stats = &repository.TenantUsageStats{TenantID: member.TenantID}
+			statsByTenantID[member.TenantID] = stats
+		}
+		stats.UserCount++
+		if member.Status == domain.TenantUserStatusActive && hasMemoryRole(r, member.TenantID, member.UserID, domain.RoleTenantAdmin) {
+			stats.TenantAdminCount++
+		}
+	}
+	stats := make([]repository.TenantUsageStats, 0, len(statsByTenantID))
+	for _, item := range statsByTenantID {
+		stats = append(stats, *item)
+	}
+	return stats, nil
+}
+
+// GetTenantUsageStats 返回测试仓储中单个租户的成员数和活跃管理员数。
+func (r *memoryTenantRepo) GetTenantUsageStats(ctx context.Context, tenantID uint64) (repository.TenantUsageStats, error) {
+	stats, err := r.ListTenantUsageStats(ctx)
+	if err != nil {
+		return repository.TenantUsageStats{}, err
+	}
+	for _, stat := range stats {
+		if stat.TenantID == tenantID {
+			return stat, nil
+		}
+	}
+	return repository.TenantUsageStats{TenantID: tenantID}, nil
+}
+
+// EnsureRole 在测试仓储中幂等写入基础角色定义。
 func (r *memoryTenantRepo) EnsureRole(_ context.Context, role *domain.Role) (*domain.Role, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -199,6 +252,7 @@ func (r *memoryTenantRepo) EnsureRole(_ context.Context, role *domain.Role) (*do
 	return role, nil
 }
 
+// FindRoleByCode 在测试仓储中按角色编码查找角色定义。
 func (r *memoryTenantRepo) FindRoleByCode(_ context.Context, code domain.RoleCode) (*domain.Role, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -210,6 +264,7 @@ func (r *memoryTenantRepo) FindRoleByCode(_ context.Context, code domain.RoleCod
 	return &copy, nil
 }
 
+// EnsureUserRole 在测试仓储中幂等写入用户角色授权。
 func (r *memoryTenantRepo) EnsureUserRole(_ context.Context, tenantID *uint64, userID uint64, roleCode domain.RoleCode) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -226,6 +281,7 @@ func (r *memoryTenantRepo) EnsureUserRole(_ context.Context, tenantID *uint64, u
 	return nil
 }
 
+// RemoveUserRole 在测试仓储中删除用户角色授权。
 func (r *memoryTenantRepo) RemoveUserRole(_ context.Context, tenantID *uint64, userID uint64, roleCode domain.RoleCode) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -237,12 +293,14 @@ func (r *memoryTenantRepo) RemoveUserRole(_ context.Context, tenantID *uint64, u
 	return nil
 }
 
+// ListRoleCodesByUserTenant 返回测试仓储中用户在指定租户内的角色编码。
 func (r *memoryTenantRepo) ListRoleCodesByUserTenant(_ context.Context, userID uint64, tenantID uint64) ([]domain.RoleCode, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.roleCodesByUserTenantLocked(userID, tenantID), nil
 }
 
+// ListPlatformRoleCodes 返回测试仓储中用户的平台级角色编码。
 func (r *memoryTenantRepo) ListPlatformRoleCodes(_ context.Context, userID uint64) ([]domain.RoleCode, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -257,6 +315,7 @@ func (r *memoryTenantRepo) ListPlatformRoleCodes(_ context.Context, userID uint6
 	return roles, nil
 }
 
+// HasRole 判断测试仓储中用户是否拥有指定平台或租户角色。
 func (r *memoryTenantRepo) HasRole(_ context.Context, userID uint64, tenantID *uint64, roleCode domain.RoleCode) (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -268,6 +327,7 @@ func (r *memoryTenantRepo) HasRole(_ context.Context, userID uint64, tenantID *u
 	return ok, nil
 }
 
+// CountTenantAdmins 统计测试仓储中指定租户的活跃管理员数量。
 func (r *memoryTenantRepo) CountTenantAdmins(_ context.Context, tenantID uint64) (int64, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -280,6 +340,7 @@ func (r *memoryTenantRepo) CountTenantAdmins(_ context.Context, tenantID uint64)
 	return count, nil
 }
 
+// roleCodesByUserTenantLocked 在已持锁状态下收集用户的租户内角色编码。
 func (r *memoryTenantRepo) roleCodesByUserTenantLocked(userID uint64, tenantID uint64) []domain.RoleCode {
 	roles := []domain.RoleCode{}
 	for _, assignment := range r.assignments {
@@ -292,6 +353,7 @@ func (r *memoryTenantRepo) roleCodesByUserTenantLocked(userID uint64, tenantID u
 	return roles
 }
 
+// hasMemoryRole 判断测试仓储中用户是否拥有指定租户角色。
 func hasMemoryRole(r *memoryTenantRepo, tenantID uint64, userID uint64, roleCode domain.RoleCode) bool {
 	roleID, ok := r.roleCodes[roleCode]
 	if !ok {

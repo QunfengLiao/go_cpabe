@@ -153,8 +153,9 @@ Examples of foundational tasks (adjust based on your project):
 
 - [ ] TXXX [P] Documentation updates in docs/
 - [ ] TXXX Code cleanup and refactoring
-- [ ] TXXX 关键注释和可读性检查：确认新增或修改的核心业务代码包含必要中文注释，重点解释设计原因、
-      安全边界和关键取舍，并移除无意义逐行注释
+- [ ] TXXX Go 关键注释和可读性检查：确认新增或修改的 Go 业务代码中每个函数/方法都有前置注释，
+      导出标识符符合 GoDoc 前缀规范，实体字段、Handler、Service、Repository、Middleware
+      注释解释业务语义、副作用、安全边界和关键取舍，并移除无意义逐行注释
 - [ ] TXXX Performance optimization across all stories
 - [ ] TXXX [P] Additional unit tests (if requested) in tests/unit/
 - [ ] TXXX Security hardening
@@ -249,8 +250,9 @@ With multiple developers:
 - [Story] label maps task to specific user story for traceability
 - Each user story should be independently completable and testable
 - Verify tests fail before implementing
-- AI 新增或修改核心业务代码时，必须补充必要中文注释解释设计原因；涉及安全、认证、权限、
-  Token、密码、文件上传、加密算法、策略判定和访问控制时，必须说明安全边界
+- AI 新增或修改 Go 业务代码时，必须为每个函数/方法补充前置注释；导出的函数、方法、类型、
+  接口、常量和变量必须符合 GoDoc 标识符前缀规范；涉及安全、认证、权限、Token、密码、
+  文件上传、加密算法、策略判定和访问控制时，必须说明安全边界
 - Commit after each task or logical group
 - Stop at any checkpoint to validate story independently
 - Avoid: vague tasks, same file conflicts, cross-story dependencies that break independence

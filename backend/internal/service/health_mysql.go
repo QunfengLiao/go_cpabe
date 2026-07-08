@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 )
 
+// CheckMySQL 检查 MySQL 连接是否可 ping 通，并把初始化错误转换为依赖健康状态。
 func CheckMySQL(ctx context.Context, db *gorm.DB, initErr error) model.DependencyHealth {
 	if initErr != nil {
 		return dependencyError(initErr)

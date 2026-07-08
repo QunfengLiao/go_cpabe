@@ -11,6 +11,7 @@ import (
 	"go-cpabe/backend/internal/pkg/auth"
 )
 
+// TestAuthRequiredAcceptsOnlyAccessToken 验证认证中间件只接受 access token 并拒绝缺失凭证。
 func TestAuthRequiredAcceptsOnlyAccessToken(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	manager := auth.NewManager("secret", time.Minute)

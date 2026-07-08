@@ -15,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// TestHealthDegradedWhenDependenciesUnavailable 验证依赖不可用时健康检查返回 degraded。
 func TestHealthDegradedWhenDependenciesUnavailable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -51,6 +52,7 @@ func TestHealthDegradedWhenDependenciesUnavailable(t *testing.T) {
 	}
 }
 
+// TestHealthAllowsDesktopRendererOrigin 验证健康检查允许桌面端渲染进程跨域访问。
 func TestHealthAllowsDesktopRendererOrigin(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

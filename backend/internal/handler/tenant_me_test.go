@@ -5,6 +5,7 @@ import (
 	"testing"
 )
 
+// TestMyTenantsEndpoint 验证当前用户租户列表接口返回默认租户上下文。
 func TestMyTenantsEndpoint(t *testing.T) {
 	app := newTestApp()
 	access, _ := registerAndLogin(t, app)

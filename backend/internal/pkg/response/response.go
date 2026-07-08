@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// Envelope 是所有 HTTP JSON 响应的统一外层结构。
 type Envelope struct {
 	Code      string `json:"code"`
 	Message   string `json:"message"`
@@ -14,14 +15,17 @@ type Envelope struct {
 	RequestID string `json:"request_id"`
 }
 
+// OK 返回成功响应，data 可为对象、数组或 nil。
 func OK(c *gin.Context, data any) {
 	c.JSON(http.StatusOK, Envelope{Code: "OK", Message: "success", Data: data, RequestID: requestID(c)})
 }
 
+// Created 返回资源创建成功响应，HTTP 状态码为 201。
 func Created(c *gin.Context, data any) {
 	c.JSON(http.StatusCreated, Envelope{Code: "OK", Message: "success", Data: data, RequestID: requestID(c)})
 }
 
+// Fail 将业务错误或未知错误转换为统一响应结构。
 func Fail(c *gin.Context, err error) {
 	appErr := ErrInternal
 	if errors.As(err, &appErr) {
@@ -31,6 +35,7 @@ func Fail(c *gin.Context, err error) {
 	c.JSON(ErrInternal.HTTPStatus, Envelope{Code: ErrInternal.Code, Message: ErrInternal.Message, Data: nil, RequestID: requestID(c)})
 }
 
+// requestID 从 gin.Context 中读取请求 ID，用于前端和日志关联。
 func requestID(c *gin.Context) string {
 	if v := c.GetHeader("X-Request-ID"); v != "" {
 		return v

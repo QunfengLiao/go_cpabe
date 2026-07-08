@@ -5,6 +5,7 @@ import (
 	"testing"
 )
 
+// TestRefreshEndpointRotatesToken 验证刷新接口会轮换 refresh token 并使旧 token 失效。
 func TestRefreshEndpointRotatesToken(t *testing.T) {
 	app := newTestApp()
 	_, refresh := registerAndLogin(t, app)

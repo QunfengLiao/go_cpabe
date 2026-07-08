@@ -2,6 +2,7 @@ package domain
 
 import "time"
 
+// UserDTO 是用户接口响应模型，显式排除密码摘要和头像对象键等内部字段。
 type UserDTO struct {
 	ID        uint64     `json:"id"`
 	Email     string     `json:"email"`
@@ -15,6 +16,7 @@ type UserDTO struct {
 	UpdatedAt time.Time  `json:"updated_at,omitempty"`
 }
 
+// ToUserDTO 将数据库用户实体转换为前端响应模型，并按场景决定是否暴露账号状态。
 func ToUserDTO(user User, includeStatus bool) UserDTO {
 	var birthday *string
 	if user.Birthday != nil {
@@ -32,6 +34,7 @@ func ToUserDTO(user User, includeStatus bool) UserDTO {
 		CreatedAt: user.CreatedAt,
 		UpdatedAt: user.UpdatedAt,
 	}
+	// DTO 白名单只暴露前端需要的展示字段，password_hash、avatar_object_key 等敏感/内部字段永不返回。
 	if includeStatus {
 		dto.Status = user.Status
 	}

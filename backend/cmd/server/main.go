@@ -13,6 +13,7 @@ import (
 	"go-cpabe/backend/internal/service"
 )
 
+// main 装配后端服务依赖、执行开发环境迁移与基础数据补齐，并启动 Gin HTTP 服务。
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
@@ -35,6 +36,8 @@ func main() {
 	localStorage := storage.NewLocalStorage(cfg.AvatarUploadDir, cfg.AvatarURLPrefix)
 
 	tenantSvc := service.NewTenantService(tenantRepo, userRepo)
+	// 启动阶段补齐基础租户和角色，主要服务于演示环境与旧单租户数据迁移；
+	// 受控环境后续应迁移到显式 seed/migration，避免启动路径承担大量写入。
 	if err := tenantSvc.BootstrapDefaultTenant(context.Background()); err != nil {
 		log.Fatalf("bootstrap tenants: %v", err)
 	}

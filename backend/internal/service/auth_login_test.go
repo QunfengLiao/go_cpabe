@@ -11,6 +11,7 @@ import (
 	"go-cpabe/backend/internal/pkg/response"
 )
 
+// TestLoginRules 覆盖登录成功、租户选择校验和默认租户上下文返回。
 func TestLoginRules(t *testing.T) {
 	repo := newMemoryUserRepo()
 	tenantRepo := newMemoryTenantRepo()
