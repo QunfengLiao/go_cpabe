@@ -85,6 +85,22 @@ var (
 	ErrTenantAdminSelfRoleForbidden = NewError("TENANT_ADMIN_SELF_ROLE_FORBIDDEN", "不能修改自己的租户管理员角色", http.StatusForbidden)
 	// ErrPlatformPermissionDenied 表示当前用户没有平台级管理权限。
 	ErrPlatformPermissionDenied = NewError("PLATFORM_PERMISSION_DENIED", "当前用户不是平台管理员", http.StatusForbidden)
+	// ErrPolicyAttributeCodeExists 表示访问策略属性编码已存在。
+	ErrPolicyAttributeCodeExists = NewError("POLICY_ATTRIBUTE_CODE_EXISTS", "属性编码已存在", http.StatusConflict)
+	// ErrPolicyAttributeInvalid 表示访问策略属性字段或可选值非法。
+	ErrPolicyAttributeInvalid = NewError("POLICY_ATTRIBUTE_INVALID", "访问策略属性非法", http.StatusBadRequest)
+	// ErrPolicyTemplateInvalid 表示策略模板访问树或基础字段非法。
+	ErrPolicyTemplateInvalid = NewError("POLICY_TEMPLATE_INVALID", "策略模板非法", http.StatusBadRequest)
+	// ErrAccessPolicyNotFound 表示访问策略不存在或当前用户无权访问。
+	ErrAccessPolicyNotFound = NewError("ACCESS_POLICY_NOT_FOUND", "访问策略不存在", http.StatusNotFound)
+	// ErrAccessPolicyForbidden 表示当前角色无权执行访问策略操作。
+	ErrAccessPolicyForbidden = NewError("ACCESS_POLICY_FORBIDDEN", "当前角色无权操作访问策略", http.StatusForbidden)
+	// ErrAccessPolicyTreeInvalid 表示访问树结构、属性引用或节点值校验失败。
+	ErrAccessPolicyTreeInvalid = NewError("ACCESS_POLICY_TREE_INVALID", "访问树非法", http.StatusBadRequest)
+	// ErrAccessPolicyAttributeDisabled 表示访问树引用了禁用或未开放属性。
+	ErrAccessPolicyAttributeDisabled = NewError("ACCESS_POLICY_ATTRIBUTE_DISABLED", "访问树引用了未开放属性", http.StatusBadRequest)
+	// ErrAccessPolicyExprMismatch 表示客户端表达式与后端访问树生成结果不一致。
+	ErrAccessPolicyExprMismatch = NewError("ACCESS_POLICY_EXPR_MISMATCH", "策略表达式与访问树不一致", http.StatusBadRequest)
 	// ErrInternal 表示服务端内部异常，响应中不暴露底层错误细节。
 	ErrInternal = NewError("INTERNAL_ERROR", "内部错误", http.StatusInternalServerError)
 )

@@ -512,6 +512,7 @@ type testApp struct {
 	router     *gin.Engine
 	repo       *testRepo
 	tenantRepo *testTenantRepo
+	policyRepo *testPolicyRepo
 	store      *auth.MemoryTokenStore
 }
 
@@ -520,6 +521,7 @@ func newTestApp() testApp {
 	gin.SetMode(gin.TestMode)
 	repo := newTestRepo()
 	tenantRepo := newTestTenantRepo()
+	policyRepo := newTestPolicyRepo()
 	manager := auth.NewManager("test-secret", time.Minute)
 	store := auth.NewMemoryTokenStore()
 	tenantSvc := service.NewTenantService(tenantRepo, repo)
@@ -533,6 +535,7 @@ func newTestApp() testApp {
 	platformDashboardSvc := service.NewPlatformDashboardService(tenantRepo, repo)
 	authSvc := service.NewAuthService(repo, manager, store, time.Hour, tenantSvc)
 	userSvc := service.NewUserService(repo, testStorage{})
+	policySvc := service.NewPolicyService(policyRepo, tenantRepo)
 	router := NewRouter(Dependencies{
 		AuthService:               authSvc,
 		UserService:               userSvc,
@@ -541,20 +544,34 @@ func newTestApp() testApp {
 		PlatformTenantUserService: platformTenantUserSvc,
 		PlatformRoleService:       platformRoleSvc,
 		PlatformDashboardService:  platformDashboardSvc,
+		PolicyService:             policySvc,
 		PlatformRoleResolver:      tenantRepo,
 		AuthManager:               manager,
 		MaxAvatarSize:             2 * 1024 * 1024,
 	})
-	return testApp{router: router, repo: repo, tenantRepo: tenantRepo, store: store}
+	return testApp{router: router, repo: repo, tenantRepo: tenantRepo, policyRepo: policyRepo, store: store}
 }
 
 // performJSON 发送 JSON 测试请求，并在给定 token 时写入 Authorization 头。
 func performJSON(router http.Handler, method, path string, body any, token string) *httptest.ResponseRecorder {
+	return performJSONWithHeaders(router, method, path, body, token, nil)
+}
+
+// performJSONWithTenant 发送带 X-Tenant-Id 的 JSON 测试请求，用于租户隔离接口。
+func performJSONWithTenant(router http.Handler, method, path string, body any, token string, tenantID uint64) *httptest.ResponseRecorder {
+	return performJSONWithHeaders(router, method, path, body, token, map[string]string{"X-Tenant-Id": strconv.FormatUint(tenantID, 10)})
+}
+
+// performJSONWithHeaders 发送 JSON 请求并附加可选头，集中处理认证和租户上下文。
+func performJSONWithHeaders(router http.Handler, method, path string, body any, token string, headers map[string]string) *httptest.ResponseRecorder {
 	payload, _ := json.Marshal(body)
 	req := httptest.NewRequest(method, path, bytes.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	for key, value := range headers {
+		req.Header.Set(key, value)
 	}
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)

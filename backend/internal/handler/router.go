@@ -16,6 +16,7 @@ type Dependencies struct {
 	PlatformTenantUserService *service.PlatformTenantUserService
 	PlatformRoleService       *service.PlatformRoleService
 	PlatformDashboardService  *service.PlatformDashboardService
+	PolicyService             *service.PolicyService
 	PlatformRoleResolver      middleware.PlatformRoleResolver
 	AuthManager               *auth.Manager
 	HealthService             *service.HealthService
@@ -36,6 +37,7 @@ func NewRouter(deps Dependencies) *gin.Engine {
 		deps.PlatformRoleService,
 		deps.PlatformDashboardService,
 	)
+	policyHandler := NewPolicyHandler(deps.PolicyService)
 
 	if deps.HealthService != nil {
 		healthHandler := NewHealthHandler(deps.HealthService)
@@ -63,6 +65,15 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	tenants.GET("/:id/users", tenantHandler.ListTenantUsers)
 	tenants.PUT("/:id/members/:userId/role", tenantHandler.AssignTenantMemberRole)
 
+	tenantPolicies := api.Group("/tenants/:id", middleware.AuthRequired(deps.AuthManager), middleware.TenantRequired(deps.TenantService))
+	tenantPolicies.GET("/access-policy/attributes", policyHandler.AvailableAttributes)
+	tenantPolicies.GET("/access-policy/templates", policyHandler.AvailableTemplates)
+	tenantPolicies.GET("/access-policies", policyHandler.ListAccessPolicies)
+	tenantPolicies.POST("/access-policies", policyHandler.CreateAccessPolicy)
+	tenantPolicies.GET("/access-policies/:policyId", policyHandler.AccessPolicyDetail)
+	tenantPolicies.PUT("/access-policies/:policyId", policyHandler.UpdateAccessPolicy)
+	tenantPolicies.DELETE("/access-policies/:policyId", policyHandler.DeleteAccessPolicy)
+
 	platform := api.Group("/platform", middleware.AuthRequired(deps.AuthManager), middleware.PlatformAdminRequired(deps.PlatformRoleResolver))
 	platform.GET("/dashboard", platformHandler.Dashboard)
 	platform.GET("/tenants", platformHandler.ListTenants)
@@ -75,6 +86,15 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	platform.DELETE("/tenants/:id/users/:userId", platformHandler.RemoveTenantUser)
 	platform.POST("/tenants/:id/admins", platformHandler.AssignTenantAdmin)
 	platform.DELETE("/tenants/:id/admins/:userId", platformHandler.RemoveTenantAdmin)
+	platform.GET("/policy-attributes", policyHandler.ListAttributes)
+	platform.POST("/policy-attributes", policyHandler.CreateAttribute)
+	platform.PUT("/policy-attributes/:attributeId", policyHandler.UpdateAttribute)
+	platform.DELETE("/policy-attributes/:attributeId", policyHandler.DeleteAttribute)
+	platform.GET("/policy-templates", policyHandler.ListTemplates)
+	platform.POST("/policy-templates", policyHandler.CreateTemplate)
+	platform.GET("/policy-templates/:templateId", policyHandler.TemplateDetail)
+	platform.PUT("/policy-templates/:templateId", policyHandler.UpdateTemplate)
+	platform.DELETE("/policy-templates/:templateId", policyHandler.DeleteTemplate)
 
 	protected := api.Group("/users", middleware.AuthRequired(deps.AuthManager))
 	protected.GET("/me", userHandler.Me)

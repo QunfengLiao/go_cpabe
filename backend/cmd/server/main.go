@@ -24,13 +24,14 @@ func main() {
 	if err != nil {
 		log.Fatalf("open database: %v", err)
 	}
-	if err := db.AutoMigrate(&domain.User{}, &domain.Tenant{}, &domain.TenantUser{}, &domain.Role{}, &domain.UserRoleAssignment{}); err != nil {
+	if err := db.AutoMigrate(&domain.User{}, &domain.Tenant{}, &domain.TenantUser{}, &domain.Role{}, &domain.UserRoleAssignment{}, &domain.PolicyAttribute{}, &domain.PolicyTemplate{}, &domain.AccessPolicy{}); err != nil {
 		log.Fatalf("auto migrate: %v", err)
 	}
 
 	redisClient := config.OpenRedis(cfg)
 	userRepo := repository.NewGormUserRepository(db)
 	tenantRepo := repository.NewGormTenantRepository(db)
+	policyRepo := repository.NewGormPolicyRepository(db)
 	authManager := auth.NewManager(cfg.JWTSecret, cfg.AccessTokenTTL)
 	tokenStore := auth.NewRedisTokenStore(redisClient, cfg.RefreshTokenTTL)
 	localStorage := storage.NewLocalStorage(cfg.AvatarUploadDir, cfg.AvatarURLPrefix)
@@ -46,6 +47,10 @@ func main() {
 	platformTenantUserSvc := service.NewPlatformTenantUserService(tenantRepo, userRepo, auditRecorder)
 	platformRoleSvc := service.NewPlatformRoleService(tenantRepo, userRepo, auditRecorder)
 	platformDashboardSvc := service.NewPlatformDashboardService(tenantRepo, userRepo)
+	policySvc := service.NewPolicyService(policyRepo, tenantRepo)
+	if err := policySvc.BootstrapDemoPolicyCatalog(context.Background()); err != nil {
+		log.Fatalf("bootstrap policy catalog: %v", err)
+	}
 	authSvc := service.NewAuthService(userRepo, authManager, tokenStore, cfg.RefreshTokenTTL, tenantSvc)
 	userSvc := service.NewUserService(userRepo, localStorage)
 	healthSvc := service.NewHealthService(cfg, db, nil, redisClient, nil)
@@ -58,6 +63,7 @@ func main() {
 		PlatformTenantUserService: platformTenantUserSvc,
 		PlatformRoleService:       platformRoleSvc,
 		PlatformDashboardService:  platformDashboardSvc,
+		PolicyService:             policySvc,
 		PlatformRoleResolver:      tenantRepo,
 		AuthManager:               authManager,
 		HealthService:             healthSvc,

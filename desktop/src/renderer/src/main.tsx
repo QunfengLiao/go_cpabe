@@ -5,10 +5,15 @@ import { AuthProvider } from "./auth/AuthContext";
 import { GuestOnly } from "./auth/GuestOnly";
 import { RequireAuth } from "./auth/RequireAuth";
 import { RequirePlatformAdmin } from "./auth/RequirePlatformAdmin";
+import { RequireTenantRole } from "./auth/RequireTenantRole";
 import { AppLayout } from "./components/AppLayout";
 import { GuestLayout } from "./components/GuestLayout";
+import { AccessPolicyBuilderPage } from "./pages/AccessPolicyBuilderPage";
+import { AccessPolicyEditorPage } from "./pages/AccessPolicyEditorPage";
 import { LoginPage } from "./pages/LoginPage";
+import { MyAccessPoliciesPage } from "./pages/MyAccessPoliciesPage";
 import { PlatformDashboardPage } from "./pages/PlatformDashboardPage";
+import { PlatformPolicyManagementPage } from "./pages/PlatformPolicyManagementPage";
 import { PlatformTenantCreatePage } from "./pages/PlatformTenantCreatePage";
 import { PlatformTenantDetailPage } from "./pages/PlatformTenantDetailPage";
 import { PlatformTenantListPage } from "./pages/PlatformTenantListPage";
@@ -17,6 +22,7 @@ import { ProfilePage } from "./pages/ProfilePage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { SelectTenantPage } from "./pages/SelectTenantPage";
 import { StartupRedirect } from "./pages/StartupRedirect";
+import { TenantAccessPolicyViewPage } from "./pages/TenantAccessPolicyViewPage";
 import { TenantMembersPage } from "./pages/TenantMembersPage";
 import { prepareStartupTenant } from "./tenantStartup";
 import { ThemeProvider } from "./theme/ThemeProvider";
@@ -51,6 +57,17 @@ createRoot(document.getElementById("root")!).render(
                   <Route path="/platform/tenants/new" element={<PlatformTenantCreatePage />} />
                   <Route path="/platform/tenants/:tenantId" element={<PlatformTenantDetailPage />} />
                   <Route path="/platform/tenants/:tenantId/users" element={<PlatformTenantUsersPage />} />
+                  <Route path="/platform/policies" element={<PlatformPolicyManagementPage />} />
+                </Route>
+                <Route element={<RequireTenantRole roles={["DO"]} />}>
+                  <Route path="/access-policies/builder" element={<AccessPolicyBuilderPage />} />
+                  <Route path="/access-policies/builder/editor" element={<AccessPolicyEditorPage />} />
+                  <Route path="/access-policies" element={<MyAccessPoliciesPage />} />
+                  <Route path="/access-policies/:policyId/edit" element={<AccessPolicyBuilderPage />} />
+                  <Route path="/access-policies/:policyId/edit/tree" element={<AccessPolicyEditorPage />} />
+                </Route>
+                <Route element={<RequireTenantRole roles={["TENANT_ADMIN"]} />}>
+                  <Route path="/tenant/access-policies" element={<TenantAccessPolicyViewPage />} />
                 </Route>
                 <Route path="*" element={<Navigate to="/profile" replace />} />
               </Route>
