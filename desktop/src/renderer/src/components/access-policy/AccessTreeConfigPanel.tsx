@@ -1,4 +1,6 @@
-import { attributeCode, attributeName, attributeType, attributeValues, type PolicyAttribute, type PolicyOperator, type SimpleFlowNode } from "./tree/types";
+import { attributeCode, attributeName, attributeOperators, attributeTree, attributeType, findAttributeValue, structuredAttributeValues, type PolicyAttribute, type PolicyOperator, type SimpleFlowNode } from "./tree/types";
+import { operatorLabel } from "./tree/display";
+import { defaultConditionForAttribute } from "./tree/policyModel";
 
 export function AccessTreeConfigPanel({
   node,
@@ -28,6 +30,8 @@ export function AccessTreeConfigPanel({
     );
   }
   const selectedAttr = attributes.find((attr) => attributeCode(attr) === node.data.attribute);
+  const selectedType = selectedAttr ? attributeType(selectedAttr) : "string";
+  const availableOperators: PolicyOperator[] = selectedAttr ? attributeOperators(selectedAttr) : ["="];
   return (
     <aside className="access-tree-config">
       <div className="access-editor-card-title">
@@ -41,8 +45,8 @@ export function AccessTreeConfigPanel({
       <label className="config-field">
         <span>节点类型</span>
         <select value={node.data.nodeType} onChange={(event) => onChange({ ...node, type: event.target.value === "AND" ? "andNode" : event.target.value === "OR" ? "orNode" : "attributeNode", data: { ...node.data, nodeType: event.target.value as "AND" | "OR" | "LEAF" } })}>
-          <option value="AND">AND</option>
-          <option value="OR">OR</option>
+          <option value="AND">且 - 全部满足</option>
+          <option value="OR">或 - 任一满足</option>
           <option value="LEAF">属性条件</option>
         </select>
       </label>
@@ -50,27 +54,33 @@ export function AccessTreeConfigPanel({
         <>
           <label className="config-field">
             <span>属性</span>
-            <select value={node.data.attribute ?? ""} onChange={(event) => onChange({ ...node, data: { ...node.data, attribute: event.target.value, value: "" } })}>
+            <select value={node.data.attribute ?? ""} onChange={(event) => {
+              const attr = attributes.find((item) => attributeCode(item) === event.target.value);
+              const condition = attr ? defaultConditionForAttribute(attr) : { field: event.target.value, operator: "=" as PolicyOperator, value: "" };
+              onChange({ ...node, data: { ...node.data, attribute: condition.field, operator: condition.operator, value: condition.value, valueId: condition.valueId, valueCode: condition.valueCode, label: condition.label, path: condition.path } });
+            }}>
               <option value="">请选择</option>
               {attributes.map((attr) => <option key={attributeCode(attr)} value={attributeCode(attr)}>{attributeName(attr)}</option>)}
             </select>
           </label>
           <label className="config-field">
             <span>操作符</span>
-            <select value={node.data.operator ?? "="} onChange={(event) => onChange({ ...node, data: { ...node.data, operator: event.target.value as PolicyOperator } })}>
-              <option value="=">=</option>
-              <option value="!=">!=</option>
+            <select value={node.data.operator ?? availableOperators[0] ?? "="} onChange={(event) => onChange({ ...node, data: { ...node.data, operator: event.target.value as PolicyOperator } })}>
+              {availableOperators.map((operator) => <option key={operator} value={operator}>{operatorLabel(operator)}</option>)}
             </select>
           </label>
           <label className="config-field">
             <span>属性值</span>
-            {selectedAttr && attributeType(selectedAttr) === "enum" ? (
-              <select value={String(node.data.value ?? "")} onChange={(event) => onChange({ ...node, data: { ...node.data, value: event.target.value } })}>
+            {selectedAttr && (selectedType === "enum" || selectedType === "tree") ? (
+              <select value={String(node.data.value ?? "")} onChange={(event) => {
+                const matched = findAttributeValue(selectedAttr, event.target.value);
+                onChange({ ...node, data: { ...node.data, value: event.target.value, valueId: matched?.valueId, valueCode: matched?.valueCode, label: matched?.label, path: matched?.path } });
+              }}>
                 <option value="">请选择</option>
-                {attributeValues(selectedAttr).map((value) => <option key={value} value={value}>{value}</option>)}
+                {valueOptions(selectedAttr).map((option) => <option key={option.valueCode} value={option.valueCode}>{option.label}</option>)}
               </select>
             ) : (
-              <input type={selectedAttr && attributeType(selectedAttr) === "number" ? "number" : "text"} value={String(node.data.value ?? "")} onChange={(event) => onChange({ ...node, data: { ...node.data, value: event.target.value } })} />
+              <input type={selectedAttr && selectedType === "number" ? "number" : "text"} value={String(node.data.value ?? "")} onChange={(event) => onChange({ ...node, data: { ...node.data, value: selectedType === "number" ? Number(event.target.value) : event.target.value } })} />
             )}
           </label>
         </>
@@ -78,4 +88,16 @@ export function AccessTreeConfigPanel({
       <button type="button" className="delete-node-button" onClick={() => onDelete(node.id)}>删除节点</button>
     </aside>
   );
+}
+
+function valueOptions(attribute: PolicyAttribute): Array<{ valueCode: string; label: string }> {
+  if (attributeType(attribute) === "tree") return flattenTree(attributeTree(attribute), 0);
+  return structuredAttributeValues(attribute).map((value) => ({ valueCode: value.valueCode, label: value.label }));
+}
+
+function flattenTree(values: ReturnType<typeof attributeTree>, depth: number): Array<{ valueCode: string; label: string }> {
+  return values.flatMap((value) => [
+    { valueCode: value.valueCode, label: `${"　".repeat(depth)}${value.label}` },
+    ...flattenTree(value.children ?? [], depth + 1)
+  ]);
 }

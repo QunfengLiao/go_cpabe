@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { deleteAccessPolicy, listAccessPolicies } from "../api/policy";
+import { deleteAccessPolicy, listAccessPolicies, listAvailableAttributes } from "../api/policy";
 import { useAuth } from "../auth/AuthContext";
-import type { AccessPolicy } from "../components/access-policy/tree/types";
+import { PolicyRuleSummary } from "../components/access-policy/PolicyRuleSummary";
+import { summarizePolicyRule, parsePolicyExpressionToTokens } from "../components/access-policy/tree/ruleSummary";
+import type { AccessPolicy, PolicyAttribute } from "../components/access-policy/tree/types";
 
 type FilterValue = "all" | "enabled" | "draft";
 type DisplayPolicyStatus = "enabled" | "draft";
-type RuleToken = { type: "condition" | "and" | "or"; label: string };
 
 export function MyAccessPoliciesPage() {
   const auth = useAuth();
@@ -17,10 +18,18 @@ export function MyAccessPoliciesPage() {
   const [filter, setFilter] = useState<FilterValue>("all");
   const [filterOpen, setFilterOpen] = useState(false);
   const [previewPolicy, setPreviewPolicy] = useState<AccessPolicy | null>(null);
+  const [attributes, setAttributes] = useState<PolicyAttribute[]>([]);
+  const canWritePolicy = auth.hasPermission("policy.write");
 
   async function load() {
     if (!auth.currentTenantId) return;
-    setItems(await listAccessPolicies(auth.currentTenantId));
+    const policies = await listAccessPolicies(auth.currentTenantId);
+    setItems(policies);
+    try {
+      setAttributes(await listAvailableAttributes(auth.currentTenantId));
+    } catch {
+      setAttributes([]);
+    }
   }
 
   useEffect(() => { void load(); }, [auth.currentTenantId]);
@@ -50,7 +59,7 @@ export function MyAccessPoliciesPage() {
           <p>管理当前账号创建的访问控制策略，可用于加密文件访问授权</p>
         </div>
         <div className="my-policy-actions">
-          <button className="primary-policy-action" type="button" onClick={() => navigate("/access-policies/builder")}>新建策略</button>
+          {canWritePolicy && <button className="primary-policy-action" type="button" onClick={() => navigate("/access-policies/builder")}>新建策略</button>}
           <input value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="搜索策略名称或描述" />
           <div className="policy-filter-menu">
             <button className="secondary-policy-action" type="button" onClick={() => setFilterOpen((open) => !open)}>筛选：{filterLabel(filter)}</button>
@@ -76,7 +85,7 @@ export function MyAccessPoliciesPage() {
       </section>
 
       {filteredItems.length === 0 ? (
-        <PolicyEmptyState hasKeyword={keyword.trim() !== "" || filter !== "all"} onCreate={() => navigate("/access-policies/builder")} />
+        <PolicyEmptyState canCreate={canWritePolicy} hasKeyword={keyword.trim() !== "" || filter !== "all"} onCreate={() => navigate("/access-policies/builder")} />
       ) : (
         <section className="policy-card-grid">
           {filteredItems.map((policy) => (
@@ -90,16 +99,13 @@ export function MyAccessPoliciesPage() {
                   <p>{policy.description || "暂无策略描述"}</p>
                 </div>
                 <div className="policy-card-actions">
-                  <Link to={`/access-policies/${policy.id}/edit`}>编辑</Link>
+                  {canWritePolicy && <Link to={`/access-policies/${policy.id}/edit`}>编辑</Link>}
                   <button type="button" onClick={() => setPreviewPolicy(policy)}>预览</button>
-                  <button className="danger" type="button" onClick={() => void onDelete(policy)}>删除</button>
+                  {canWritePolicy && <button className="danger" type="button" onClick={() => void onDelete(policy)}>删除</button>}
                 </div>
               </div>
 
-              <div className="policy-rule-block">
-                <span>访问规则摘要</span>
-                <RuleTags expression={policyExpression(policy)} />
-              </div>
+              <PolicyRuleSummary tokens={summarizePolicyRule(policy, attributes)} />
 
               <div className="policy-card-meta">
                 <span>更新时间：{formatDate(policyUpdatedAt(policy))}</span>
@@ -112,7 +118,7 @@ export function MyAccessPoliciesPage() {
         </section>
       )}
 
-      {previewPolicy && <PolicyPreviewModal policy={previewPolicy} onClose={() => setPreviewPolicy(null)} />}
+      {previewPolicy && <PolicyPreviewModal policy={previewPolicy} attributes={attributes} onClose={() => setPreviewPolicy(null)} />}
     </div>
   );
 }
@@ -127,18 +133,18 @@ function OverviewCard({ title, value, desc }: { title: string; value: string; de
   );
 }
 
-function PolicyEmptyState({ hasKeyword, onCreate }: { hasKeyword: boolean; onCreate: () => void }) {
+function PolicyEmptyState({ canCreate, hasKeyword, onCreate }: { canCreate: boolean; hasKeyword: boolean; onCreate: () => void }) {
   return (
     <section className="policy-empty-state">
       <div className="policy-empty-icon">∅</div>
       <h3>{hasKeyword ? "没有匹配的访问策略" : "暂无访问策略"}</h3>
       <p>{hasKeyword ? "请调整搜索关键词或筛选条件后再试" : "创建访问策略后，可用于控制加密文件的访问权限"}</p>
-      {!hasKeyword && <button className="primary-policy-action" type="button" onClick={onCreate}>新建访问策略</button>}
+      {!hasKeyword && canCreate && <button className="primary-policy-action" type="button" onClick={onCreate}>新建访问策略</button>}
     </section>
   );
 }
 
-function PolicyPreviewModal({ policy, onClose }: { policy: AccessPolicy; onClose: () => void }) {
+function PolicyPreviewModal({ policy, attributes, onClose }: { policy: AccessPolicy; attributes: PolicyAttribute[]; onClose: () => void }) {
   const expression = policyExpression(policy);
   return (
     <div className="policy-preview-modal-backdrop" role="presentation" onClick={onClose}>
@@ -151,35 +157,11 @@ function PolicyPreviewModal({ policy, onClose }: { policy: AccessPolicy; onClose
           <button type="button" onClick={onClose}>关闭</button>
         </div>
         <p>{policy.description || "暂无策略描述"}</p>
-        <div className="policy-rule-block">
-          <span>规则摘要</span>
-          <RuleTags expression={expression} />
-        </div>
-        <div className="policy-expression-full">{expression || "暂无表达式"}</div>
+        <PolicyRuleSummary title="规则摘要" tokens={summarizePolicyRule(policy, attributes)} />
+        <div className="policy-expression-full">{summarizePolicyRule(policy, attributes).map((token) => token.label).join(" ") || expression || "暂无表达式"}</div>
       </section>
     </div>
   );
-}
-
-function RuleTags({ expression }: { expression: string }) {
-  const tokens = parsePolicyExpressionToTokens(expression);
-  if (tokens.length === 0) return <div className="policy-rule-tags"><span className="rule-token muted">暂无规则</span></div>;
-  return (
-    <div className="policy-rule-tags">
-      {tokens.map((token, index) => <span key={`${token.label}-${index}`} className={`rule-token rule-token-${token.type}`}>{token.label}</span>)}
-    </div>
-  );
-}
-
-function parsePolicyExpressionToTokens(expression: string): RuleToken[] {
-  const normalized = expression.replace(/[()]/g, " ").replace(/\s+/g, " ").trim();
-  if (!normalized) return [];
-  return normalized.split(/\s+(AND|OR)\s+/).map((part) => part.trim()).filter(Boolean).map((part) => {
-    if (part === "AND") return { type: "and", label: "AND" };
-    if (part === "OR") return { type: "or", label: "OR" };
-    const [attribute, value] = part.split(":");
-    return { type: "condition", label: attribute && value ? `${attributeLabel(attribute)} = ${value}` : part };
-  });
 }
 
 function filterPolicies(items: AccessPolicy[], keyword: string, filter: FilterValue): AccessPolicy[] {
@@ -213,11 +195,6 @@ function filterLabel(filter: FilterValue): string {
   if (filter === "enabled") return "已启用";
   if (filter === "draft") return "草稿";
   return "全部";
-}
-
-function attributeLabel(code: string): string {
-  const labels: Record<string, string> = { department: "部门", role: "角色", security_level: "安全等级" };
-  return labels[code] ?? code;
 }
 
 function formatDate(value: string): string {

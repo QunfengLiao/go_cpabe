@@ -40,6 +40,9 @@ func leafExpression(node Node) string {
 	if node.Operator == OperatorNEQ {
 		return node.Attribute + "!=" + quoteIfNeeded(value)
 	}
+	if node.Operator == OperatorGTE || node.Operator == OperatorLTE || node.Operator == OperatorBelongsTo {
+		return node.Attribute + string(node.Operator) + quoteIfNeeded(value)
+	}
 	return node.Attribute + ":" + quoteIfNeeded(value)
 }
 

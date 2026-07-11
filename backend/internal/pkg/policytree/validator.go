@@ -56,18 +56,21 @@ func validateLeafNode(node Node, attrs map[string]AttributeMeta, path string) Va
 	if !attrCodePattern.MatchString(node.Attribute) {
 		errs = append(errs, ValidationError{Path: path, Message: "属性编码格式非法"})
 	}
-	if node.Operator != OperatorEQ && node.Operator != OperatorNEQ {
-		errs = append(errs, ValidationError{Path: path, Message: "操作符只能是 = 或 !="})
-	}
 	meta, ok := attrs[node.Attribute]
 	if !ok {
 		errs = append(errs, ValidationError{Path: path, Message: "属性未开放或不存在"})
 		return errs
 	}
+	if !operatorAllowed(node.Operator, meta.Type) {
+		errs = append(errs, ValidationError{Path: path, Message: "操作符与属性类型不匹配"})
+	}
 	if meta.Status != domain.PolicyStatusEnabled {
 		errs = append(errs, ValidationError{Path: path, Message: "属性已禁用"})
 	}
 	if err := validateValue(node.Value, meta); err != nil {
+		errs = append(errs, ValidationError{Path: path, Message: err.Error()})
+	}
+	if err := validateStableValueFields(node, meta); err != nil {
 		errs = append(errs, ValidationError{Path: path, Message: err.Error()})
 	}
 	return errs
@@ -79,6 +82,17 @@ func validateValue(value any, meta AttributeMeta) error {
 		return fmt.Errorf("属性值不能为空")
 	}
 	switch meta.Type {
+	case domain.PolicyAttributeTree:
+		text, ok := value.(string)
+		if !ok || text == "" {
+			return fmt.Errorf("树形属性值必须是非空字符串")
+		}
+		for _, allowed := range meta.Values {
+			if text == allowed {
+				return nil
+			}
+		}
+		return fmt.Errorf("树形属性值不在当前租户开放范围内")
 	case domain.PolicyAttributeEnum:
 		text, ok := value.(string)
 		if !ok || text == "" {
@@ -103,6 +117,46 @@ func validateValue(value any, meta AttributeMeta) error {
 		return fmt.Errorf("属性类型非法")
 	}
 	return nil
+}
+
+// validateStableValueFields 校验客户端保存的 valueId/valueCode/path 是否仍属于当前租户字典。
+func validateStableValueFields(node Node, meta AttributeMeta) error {
+	if meta.Type != domain.PolicyAttributeTree && meta.Type != domain.PolicyAttributeEnum {
+		return nil
+	}
+	if len(meta.ValuesByCode) == 0 {
+		return nil
+	}
+	code, ok := node.Value.(string)
+	if !ok {
+		return nil
+	}
+	valueMeta, ok := meta.ValuesByCode[code]
+	if !ok {
+		return nil
+	}
+	if node.ValueCode != "" && node.ValueCode != code {
+		return fmt.Errorf("稳定值编码与属性值不一致")
+	}
+	if node.ValueID != 0 && node.ValueID != valueMeta.ID {
+		return fmt.Errorf("稳定值标识不属于当前租户属性字典")
+	}
+	if node.Path != "" && valueMeta.Path != "" && node.Path != valueMeta.Path {
+		return fmt.Errorf("稳定值路径不属于当前租户属性字典")
+	}
+	return nil
+}
+
+// operatorAllowed 按属性类型约束操作符，避免客户端给枚举属性提交数字比较。
+func operatorAllowed(operator Operator, attrType domain.PolicyAttributeType) bool {
+	switch attrType {
+	case domain.PolicyAttributeNumber:
+		return operator == OperatorEQ || operator == OperatorGTE || operator == OperatorLTE
+	case domain.PolicyAttributeTree:
+		return operator == OperatorEQ || operator == OperatorBelongsTo
+	default:
+		return operator == OperatorEQ || operator == OperatorNEQ
+	}
 }
 
 // numericValue 兼容 JSON 解码后的 float64、json.Number 和前端可能提交的数字字符串。

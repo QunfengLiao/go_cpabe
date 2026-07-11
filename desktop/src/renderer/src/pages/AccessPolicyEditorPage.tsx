@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { listAvailableAttributes, listAvailableTemplates } from "../api/policy";
 import { useAuth } from "../auth/AuthContext";
 import { AccessTreeEditor } from "../components/access-policy/AccessTreeEditor";
-import { mockAttributes, mockTemplates } from "../components/access-policy/tree/mockData";
+import { mockTemplates } from "../components/access-policy/tree/mockData";
 import type { PolicyAttribute, PolicyTemplate } from "../components/access-policy/tree/types";
 
 export function AccessPolicyEditorPage() {
@@ -11,21 +11,34 @@ export function AccessPolicyEditorPage() {
   const params = useParams();
   const navigate = useNavigate();
   const policyId = params.policyId;
-  const [attributes, setAttributes] = useState<PolicyAttribute[]>(mockAttributes);
+  const [attributes, setAttributes] = useState<PolicyAttribute[]>([]);
   const [templates, setTemplates] = useState<PolicyTemplate[]>(mockTemplates);
+  const [attributesLoading, setAttributesLoading] = useState(false);
+  const [attributesError, setAttributesError] = useState("");
 
   useEffect(() => {
     if (!auth.currentTenantId) return;
+    let cancelled = false;
+    setAttributes([]);
+    setAttributesError("");
+    setAttributesLoading(true);
     Promise.all([
       listAvailableAttributes(auth.currentTenantId),
       listAvailableTemplates(auth.currentTenantId)
     ]).then(([nextAttributes, nextTemplates]) => {
-      if (nextAttributes.length > 0) setAttributes(nextAttributes);
+      if (cancelled) return;
+      setAttributes(nextAttributes);
       if (nextTemplates.length > 0) setTemplates(nextTemplates);
     }).catch(() => {
-      setAttributes(mockAttributes);
-      setTemplates(mockTemplates);
+      if (cancelled) return;
+      setAttributes([]);
+      setAttributesError("属性字典加载失败，请检查当前租户权限或稍后重试");
+    }).finally(() => {
+      if (!cancelled) setAttributesLoading(false);
     });
+    return () => {
+      cancelled = true;
+    };
   }, [auth.currentTenantId]);
 
   return (
@@ -36,6 +49,8 @@ export function AccessPolicyEditorPage() {
         tenantId={auth.currentTenantId}
         attributes={attributes}
         templates={templates}
+        attributesLoading={attributesLoading}
+        attributesError={attributesError}
         variant="workbench"
         onBack={() => navigate(policyId ? `/access-policies/${policyId}/edit` : "/access-policies/builder")}
       />

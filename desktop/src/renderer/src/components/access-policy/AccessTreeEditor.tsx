@@ -7,30 +7,34 @@ import { PolicySettingsModal } from "./PolicySettingsModal";
 import { createAccessPolicy, getAccessPolicy, updateAccessPolicy } from "../../api/policy";
 import { ApiError } from "../../api/request";
 import { clearDraft, draftKey, loadDraft, saveDraft } from "./tree/draft";
-import { mockAttributes, mockTemplates, mockTree } from "./tree/mockData";
+import { mockTemplates, mockTree } from "./tree/mockData";
 import {
   addChildToPolicyTree,
   backendToEditableTree,
   createAttributePolicyNode,
   createLogicPolicyNode,
+  defaultConditionForAttribute,
   deletePolicyTreeNode,
   editableToBackendTree,
   findPolicyNode,
   generateEditablePolicyExpression,
+  hydrateEditableTreeLabels,
   layoutPolicyTree,
   treeToFlow,
   updatePolicyTreeNode,
   validateEditablePolicyTree,
   type EditablePolicyTreeNode
 } from "./tree/policyModel";
-import { attributeCode, attributeName, attributeValues, policyTree, templateTree, type AccessPolicy, type PolicyAttribute, type PolicyTemplate, type SimpleFlowEdge, type SimpleFlowNode, type ValidationError } from "./tree/types";
+import { attributeCode, attributeName, policyTree, templateTree, type AccessPolicy, type PolicyAttribute, type PolicyTemplate, type SimpleFlowEdge, type SimpleFlowNode, type ValidationError } from "./tree/types";
 
 export function AccessTreeEditor({
   mode,
   policyId,
   tenantId,
-  attributes = mockAttributes,
+  attributes = [],
   templates = mockTemplates,
+  attributesLoading = false,
+  attributesError = "",
   variant = "embedded",
   onBack,
   onSaved
@@ -40,6 +44,8 @@ export function AccessTreeEditor({
   tenantId: string;
   attributes?: PolicyAttribute[];
   templates?: PolicyTemplate[];
+  attributesLoading?: boolean;
+  attributesError?: string;
   variant?: "embedded" | "workbench";
   onBack?: () => void;
   onSaved?: (policy: AccessPolicy) => void;
@@ -103,10 +109,11 @@ export function AccessTreeEditor({
   const attrMap = useMemo(() => new Map(attributes.map((attribute) => [attributeCode(attribute), attribute])), [attributes]);
   const validationErrors = useMemo(() => normalizeValidationErrors(validateEditablePolicyTree(policyTreeState, attributes), policyTreeState, attributes), [attributes, policyTreeState]);
   const errorByNode = useMemo(() => new Map(validationErrors.filter((error) => error.nodeId).map((error) => [error.nodeId!, error.message])), [validationErrors]);
-  const flow = useMemo(() => treeToFlow(policyTreeState, errorByNode, attrMap), [attrMap, errorByNode, policyTreeState]);
-  const backendTree = useMemo(() => editableToBackendTree(policyTreeState), [policyTreeState]);
-  const expression = useMemo(() => generateEditablePolicyExpression(policyTreeState), [policyTreeState]);
-  const selectedNode = useMemo(() => findPolicyNode(policyTreeState, selectedNodeId), [policyTreeState, selectedNodeId]);
+  const displayTree = useMemo(() => hydrateEditableTreeLabels(policyTreeState, attributes), [attributes, policyTreeState]);
+  const flow = useMemo(() => treeToFlow(displayTree, errorByNode, attrMap), [attrMap, displayTree, errorByNode]);
+  const backendTree = useMemo(() => editableToBackendTree(displayTree), [displayTree]);
+  const expression = useMemo(() => generateEditablePolicyExpression(displayTree), [displayTree]);
+  const selectedNode = useMemo(() => findPolicyNode(displayTree, selectedNodeId), [displayTree, selectedNodeId]);
 
   useEffect(() => {
     debugTreeState("policyTree 更新后", policyTreeState);
@@ -162,7 +169,13 @@ export function AccessTreeEditor({
     const id = nextNodeId(type, idSeedRef);
     if (type !== "LEAF") return createLogicPolicyNode(type === "OR" ? "or" : "and", id);
     const attr = attribute ? attributes.find((item) => attributeCode(item) === attribute) : undefined;
-    return createAttributePolicyNode(id, attribute ?? "", attr ? attributeValues(attr)[0] ?? "" : "");
+    const condition = attr ? defaultConditionForAttribute(attr) : { field: attribute ?? "", operator: "=" as const, value: "" };
+    const node = createAttributePolicyNode(id, condition.field, condition.value);
+    return {
+      ...node,
+      label: condition.label ?? node.label,
+      condition
+    };
   }
 
   function updateNode(nodeId: string, patch: Partial<EditablePolicyTreeNode>) {
@@ -228,8 +241,8 @@ export function AccessTreeEditor({
   }
 
   function saveDraftToLocal() {
-    const latestFlow = treeToFlow(policyTreeState, errorByNode, attrMap);
-    saveDraft(draftStorageKey, { name, description, nodes: latestFlow.nodes, edges: latestFlow.edges, selectedNodeId, policyTree: policyTreeState, savedAt: Date.now() });
+    const latestFlow = treeToFlow(displayTree, errorByNode, attrMap);
+    saveDraft(draftStorageKey, { name, description, nodes: latestFlow.nodes, edges: latestFlow.edges, selectedNodeId, policyTree: displayTree, savedAt: Date.now() });
     setMessage("草稿已保存到本机");
   }
 
@@ -273,7 +286,7 @@ export function AccessTreeEditor({
       </div>
       {message && <div className="access-tree-toast">{message}</div>}
       <div className="access-tree-workbench">
-        <AccessTreeSidebar attributes={attributes} templates={templates} dirty={dirty} onAddLogic={(type) => addNode(type)} onCreateAttributeNode={(code) => addNode("LEAF", code)} onApplyTemplate={applyTemplate} />
+        <AccessTreeSidebar attributes={attributes} templates={templates} dirty={dirty} attributesLoading={attributesLoading} attributesError={attributesError} onAddLogic={(type) => addNode(type)} onCreateAttributeNode={(code) => addNode("LEAF", code)} onApplyTemplate={applyTemplate} />
         <AccessTreeCanvas
           nodes={flow.nodes}
           edges={flow.edges}
@@ -295,7 +308,7 @@ export function AccessTreeEditor({
           </button>
         )}
         <button className="draft-action" type="button" onClick={saveDraftToLocal}>保存本机草稿</button>
-        {!previewCollapsed && <PolicyPreviewTabs expression={expression} tree={backendTree} errors={validationErrors} />}
+        {!previewCollapsed && <PolicyPreviewTabs expression={expression} tree={backendTree} attributes={attributes} errors={validationErrors} />}
       </div>
       {settingsOpen && (
         <PolicySettingsModal
@@ -368,7 +381,7 @@ function rebuildDraftTree(nodes: SimpleFlowNode[], edges: SimpleFlowEdge[]): Edi
         id,
         type: "attribute",
         label: String(node.data.label ?? node.data.attribute ?? "属性条件"),
-        condition: { field: String(node.data.attribute ?? ""), operator: node.data.operator === "!=" ? "!=" : "=", value: node.data.value ?? "" },
+        condition: { field: String(node.data.attribute ?? ""), operator: node.data.operator ?? "=", value: node.data.value ?? "", valueId: node.data.valueId, valueCode: node.data.valueCode, label: typeof node.data.label === "string" ? node.data.label : undefined, path: node.data.path },
         position: node.position
       };
     }

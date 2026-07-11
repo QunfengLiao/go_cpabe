@@ -20,7 +20,7 @@ function visitTree(node: PolicyTreeNode, id: string, depth: number, order: numbe
     type,
     position: { x: depth * X_GAP, y: order * Y_GAP },
     data: node.type === "LEAF"
-      ? { nodeType: "LEAF", attribute: node.attribute, operator: node.operator, value: node.value }
+      ? { nodeType: "LEAF", attribute: node.attribute, operator: node.operator, value: node.value, valueId: node.valueId, valueCode: node.valueCode, label: node.label, path: node.path }
       : { nodeType: node.type, label: node.type }
   });
   if (node.type !== "LEAF") {
@@ -60,7 +60,16 @@ export function flowToTree(nodes: SimpleFlowNode[], edges: SimpleFlowEdge[]): { 
     const childIds = (children.get(id) ?? []).sort((a, b) => (byId.get(a)?.position.x ?? 0) - (byId.get(b)?.position.x ?? 0));
     let result: PolicyTreeNode;
     if (node.data.nodeType === "LEAF") {
-      result = { type: "LEAF", attribute: String(node.data.attribute ?? ""), operator: node.data.operator ?? "=", value: node.data.value ?? "" };
+      result = {
+        type: "LEAF",
+        attribute: String(node.data.attribute ?? ""),
+        operator: node.data.operator ?? "=",
+        value: node.data.value ?? "",
+        valueId: typeof node.data.valueId === "number" ? node.data.valueId : undefined,
+        valueCode: typeof node.data.valueCode === "string" ? node.data.valueCode : undefined,
+        label: typeof node.data.label === "string" ? node.data.label : undefined,
+        path: typeof node.data.path === "string" ? node.data.path : undefined
+      };
     } else {
       result = { type: node.data.nodeType === "OR" ? "OR" : "AND", children: childIds.map((childId, index) => build(childId, `${path}.children[${index}]`)).filter(Boolean) as PolicyTreeNode[] };
     }

@@ -1,6 +1,7 @@
-import type { EditablePolicyTreeNode, PolicyConditionOperator } from "./tree/policyModel";
+import { defaultConditionForAttribute, type EditablePolicyTreeNode, type PolicyConditionOperator } from "./tree/policyModel";
 import type { PolicyAttribute } from "./tree/types";
-import { attributeCode, attributeName, attributeType, attributeValues } from "./tree/types";
+import { attributeCode, attributeName, attributeOperators, attributeTree, attributeType, findAttributeValue, structuredAttributeValues } from "./tree/types";
+import { attributeTypeLabel, operatorLabel } from "./tree/display";
 
 export function NodeConfigPopover({
   node,
@@ -16,9 +17,11 @@ export function NodeConfigPopover({
   onDelete: (nodeId: string) => void;
 }) {
   const selectedAttr = attributes.find((attr) => attributeCode(attr) === node.condition?.field);
+  const selectedType = selectedAttr ? attributeType(selectedAttr) : "string";
+  const availableOperators: PolicyConditionOperator[] = selectedAttr ? attributeOperators(selectedAttr) : ["="];
 
   function changeType(nextType: "and" | "or") {
-    onChange(node.id, { type: nextType, label: nextType === "and" ? "AND" : "OR" });
+    onChange(node.id, { type: nextType, label: nextType === "and" ? "全部满足" : "任一满足" });
   }
 
   return (
@@ -37,8 +40,8 @@ export function NodeConfigPopover({
           <label className="config-field">
             <span>逻辑类型</span>
             <select value={node.type} onChange={(event) => changeType(event.target.value as "and" | "or")}>
-              <option value="and">AND - 全部满足</option>
-              <option value="or">OR - 任一满足</option>
+              <option value="and">且 - 全部满足</option>
+              <option value="or">或 - 任一满足</option>
             </select>
           </label>
         </>
@@ -48,7 +51,10 @@ export function NodeConfigPopover({
         <>
           <label className="config-field">
             <span>属性字段</span>
-            <select value={node.condition?.field ?? ""} onChange={(event) => onChange(node.id, { condition: { field: event.target.value, operator: node.condition?.operator ?? "=", value: "" } })}>
+            <select value={node.condition?.field ?? ""} onChange={(event) => {
+              const attr = attributes.find((item) => attributeCode(item) === event.target.value);
+              onChange(node.id, { label: attr ? attributeName(attr) : "属性条件", condition: attr ? defaultConditionForAttribute(attr) : { field: event.target.value, operator: "=", value: "" } });
+            }}>
               <option value="">请选择属性</option>
               {attributes.map((attr) => <option key={attributeCode(attr)} value={attributeCode(attr)}>{attributeName(attr)}</option>)}
             </select>
@@ -56,29 +62,27 @@ export function NodeConfigPopover({
           <div className="node-popover-row">
             <label className="config-field">
               <span>操作符</span>
-              <select value={node.condition?.operator ?? "="} onChange={(event) => onChange(node.id, { condition: { field: node.condition?.field ?? "", operator: event.target.value as PolicyConditionOperator, value: node.condition?.value ?? "" } })}>
-                <option value="=">=</option>
-                <option value="!=">!=</option>
-                <option value=">">&gt;</option>
-                <option value=">=">&gt;=</option>
-                <option value="<">&lt;</option>
-                <option value="<=">&lt;=</option>
+              <select value={node.condition?.operator ?? availableOperators[0] ?? "="} onChange={(event) => onChange(node.id, { condition: { ...node.condition, field: node.condition?.field ?? "", operator: event.target.value as PolicyConditionOperator, value: node.condition?.value ?? "" } })}>
+                {availableOperators.map((operator) => <option key={operator} value={operator}>{operatorLabel(operator)}</option>)}
               </select>
             </label>
             <label className="config-field">
               <span>属性类型</span>
-              <input value={selectedAttr ? attributeType(selectedAttr) : "-"} disabled />
+              <input value={selectedAttr ? attributeTypeLabel(selectedType) : "-"} disabled />
             </label>
           </div>
           <label className="config-field">
             <span>属性值</span>
-            {selectedAttr && attributeType(selectedAttr) === "enum" ? (
-              <select value={String(node.condition?.value ?? "")} onChange={(event) => onChange(node.id, { condition: { field: node.condition?.field ?? "", operator: node.condition?.operator ?? "=", value: event.target.value } })}>
+            {selectedAttr && (selectedType === "enum" || selectedType === "tree") ? (
+              <select value={String(node.condition?.value ?? "")} onChange={(event) => {
+                const matched = findAttributeValue(selectedAttr, event.target.value);
+                onChange(node.id, { condition: { field: node.condition?.field ?? "", operator: node.condition?.operator ?? availableOperators[0] ?? "=", value: event.target.value, valueId: matched?.valueId, valueCode: matched?.valueCode, label: matched?.label, path: matched?.path } });
+              }}>
                 <option value="">请选择值</option>
-                {attributeValues(selectedAttr).map((value) => <option key={value} value={value}>{value}</option>)}
+                {valueOptions(selectedAttr).map((option) => <option key={option.valueCode} value={option.valueCode}>{option.label}</option>)}
               </select>
             ) : (
-              <input type={selectedAttr && attributeType(selectedAttr) === "number" ? "number" : "text"} value={String(node.condition?.value ?? "")} onChange={(event) => onChange(node.id, { condition: { field: node.condition?.field ?? "", operator: node.condition?.operator ?? "=", value: event.target.value } })} />
+              <input type={selectedAttr && selectedType === "number" ? "number" : "text"} value={String(node.condition?.value ?? "")} onChange={(event) => onChange(node.id, { condition: { field: node.condition?.field ?? "", operator: node.condition?.operator ?? availableOperators[0] ?? "=", value: selectedType === "number" ? Number(event.target.value) : event.target.value } })} />
             )}
           </label>
         </>
@@ -87,4 +91,16 @@ export function NodeConfigPopover({
       <button type="button" className="delete-node-button" onClick={() => onDelete(node.id)}>删除节点</button>
     </section>
   );
+}
+
+function valueOptions(attribute: PolicyAttribute): Array<{ valueCode: string; label: string }> {
+  if (attributeType(attribute) === "tree") return flattenTree(attributeTree(attribute), 0);
+  return structuredAttributeValues(attribute).map((value) => ({ valueCode: value.valueCode, label: value.label }));
+}
+
+function flattenTree(values: ReturnType<typeof attributeTree>, depth: number): Array<{ valueCode: string; label: string }> {
+  return values.flatMap((value) => [
+    { valueCode: value.valueCode, label: `${"　".repeat(depth)}${value.label}` },
+    ...flattenTree(value.children ?? [], depth + 1)
+  ]);
 }
