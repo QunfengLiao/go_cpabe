@@ -27,9 +27,24 @@ func CheckMySQL(ctx context.Context, db *gorm.DB, initErr error) model.Dependenc
 	pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
+	startedAt := time.Now()
 	if err := sqlDB.PingContext(pingCtx); err != nil {
 		return dependencyError(fmt.Errorf("mysql connection failed: authentication or network error"))
 	}
+	elapsed := time.Since(startedAt)
+	stats := sqlDB.Stats()
 
-	return model.DependencyHealth{Status: "ok", Message: "connected"}
+	return model.DependencyHealth{
+		Status:  "ok",
+		Message: "connected",
+		Metrics: map[string]any{
+			"pingMs":          elapsed.Milliseconds(),
+			"openConnections": stats.OpenConnections,
+			"inUse":           stats.InUse,
+			"idle":            stats.Idle,
+			"waitCount":       stats.WaitCount,
+			"waitDurationMs":  stats.WaitDuration.Milliseconds(),
+			"maxOpen":         stats.MaxOpenConnections,
+		},
+	}
 }
