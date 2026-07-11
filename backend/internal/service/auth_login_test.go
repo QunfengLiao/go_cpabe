@@ -67,3 +67,28 @@ func TestLoginRules(t *testing.T) {
 		t.Fatalf("expected invalid credentials, got %v", err)
 	}
 }
+
+// TestLoginReplacesSameDeviceSession 验证同一用户同一设备反复登录不会让 Refresh Session 无限累积。
+func TestLoginReplacesSameDeviceSession(t *testing.T) {
+	repo := newMemoryUserRepo()
+	tenantRepo := newMemoryTenantRepo()
+	manager := auth.NewManager("secret", time.Minute)
+	store := auth.NewMemoryTokenStore()
+	tenantSvc := NewTenantService(tenantRepo, repo)
+	svc := NewAuthService(repo, manager, store, time.Hour, tenantSvc)
+	ctx := context.Background()
+
+	if _, err := svc.Register(ctx, RegisterInput{
+		Email: "repeat@example.com", Password: "Passw0rd!", ConfirmPassword: "Passw0rd!", Nickname: "重复登录", Role: domain.RoleDataUser,
+	}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	for index := 0; index < 10; index++ {
+		if _, err := svc.Login(ctx, LoginInput{Email: "repeat@example.com", Password: "Passw0rd!", DeviceID: "electron-device"}); err != nil {
+			t.Fatalf("login %d: %v", index, err)
+		}
+	}
+	if count := store.Count(); count != 1 {
+		t.Fatalf("expected one refresh session for same device, got %d", count)
+	}
+}

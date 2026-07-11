@@ -1,5 +1,6 @@
-import type { LoginData, RefreshData, UserRole, User } from "../types";
+import type { LoginData, UserRole, User } from "../types";
 import { request } from "./request";
+import { getDeviceId } from "./authSessionStore";
 
 export interface RegisterPayload {
   email: string;
@@ -23,28 +24,10 @@ export function register(payload: RegisterPayload): Promise<{ user: User }> {
   });
 }
 
-export function login(payload: LoginPayload): Promise<LoginData> {
+export async function login(payload: LoginPayload): Promise<LoginData> {
   return request("/auth/login", {
     method: "POST",
     skipAuth: true,
-    body: JSON.stringify(payload)
-  });
-}
-
-export function refreshToken(refreshTokenValue: string): Promise<RefreshData> {
-  return request("/auth/refresh", {
-    method: "POST",
-    skipAuth: true,
-    skipRefresh: true,
-    body: JSON.stringify({ refresh_token: refreshTokenValue })
-  });
-}
-
-export function logout(refreshTokenValue: string): Promise<{ logged_out: boolean }> {
-  return request("/auth/logout", {
-    method: "POST",
-    skipAuth: true,
-    skipRefresh: true,
-    body: JSON.stringify({ refresh_token: refreshTokenValue })
+    body: JSON.stringify({ ...payload, device_id: await getDeviceId() })
   });
 }

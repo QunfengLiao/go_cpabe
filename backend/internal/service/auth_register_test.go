@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -60,6 +61,38 @@ func (r *memoryUserRepo) ListAll(_ context.Context) ([]domain.User, error) {
 		users = append(users, *user)
 	}
 	return users, nil
+}
+
+// SearchUsers 在内存仓储中按账号、邮箱、手机号或昵称做子串匹配，保持平台搜索接口测试可用。
+func (r *memoryUserRepo) SearchUsers(_ context.Context, query string, limit int) ([]domain.User, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	keyword := strings.ToLower(strings.TrimSpace(query))
+	if keyword == "" {
+		return []domain.User{}, nil
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	users := []domain.User{}
+	for _, user := range r.byID {
+		if !containsUserKeyword(*user, keyword) {
+			continue
+		}
+		users = append(users, *user)
+		if len(users) >= limit {
+			break
+		}
+	}
+	return users, nil
+}
+
+// containsUserKeyword 判断测试用户展示字段是否命中搜索关键字，避免测试仓储和真实仓储的搜索语义偏离过大。
+func containsUserKeyword(user domain.User, keyword string) bool {
+	return strings.Contains(strings.ToLower(user.Username), keyword) ||
+		strings.Contains(strings.ToLower(user.Email), keyword) ||
+		strings.Contains(strings.ToLower(user.Phone), keyword) ||
+		strings.Contains(strings.ToLower(user.Nickname), keyword)
 }
 
 // CountUsers 返回内存仓储中的用户数量，模拟 dashboard 使用的轻量计数查询。
