@@ -1,26 +1,87 @@
-import type { TenantBusinessRole, TenantMember, TenantRole } from "../types";
+import { Alert, Button, Checkbox, Spin, Tag, Typography } from "antd";
+import { useEffect, useMemo, useState } from "react";
+import { filterTenantVisibleRoles, getTenantMemberRoles, listTenantRoles, rbacErrorMessage, replaceTenantMemberRoles } from "../api/rbac";
+import { useAuth } from "../auth/AuthContext";
+import type { MemberRoleDTO, TenantMember, TenantRole, TenantRoleDTO } from "../types";
+import { categoryLabel, normalizeCategory } from "./tenant-rbac/RoleList";
 
 interface TenantMemberRoleDialogProps {
   member: TenantMember;
-  saving: boolean;
   onClose: () => void;
-  onSave: (role: TenantBusinessRole) => void;
+  onSaved: (result: MemberRoleDTO) => void;
 }
 
-const businessRoleOptions: Array<{ label: string; value: TenantBusinessRole; internal: TenantRole }> = [
-  { label: "数据拥有者", value: "DATA_OWNER", internal: "DO" },
-  { label: "数据访问者", value: "DATA_VISITOR", internal: "DU" }
-];
+export function TenantMemberRoleDialog({ member, onClose, onSaved }: TenantMemberRoleDialogProps) {
+  const auth = useAuth();
+  const [roles, setRoles] = useState<TenantRoleDTO[]>([]);
+  const [currentRoles, setCurrentRoles] = useState<TenantRoleDTO[]>([]);
+  const [selectedRoleIds, setSelectedRoleIds] = useState<number[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const currentRoleIds = useMemo(() => new Set(currentRoles.map((role) => role.id)), [currentRoles]);
+  const tenantId = Number(auth.currentTenantId) || undefined;
+  const groupedRoles = useMemo(() => {
+    return filterTenantVisibleRoles(roles, tenantId)
+      .reduce<Record<string, TenantRoleDTO[]>>((groups, role) => {
+        const key = normalizeCategory(role);
+        groups[key] ??= [];
+        groups[key].push(role);
+        return groups;
+      }, {});
+  }, [roles, tenantId]);
 
-export function TenantMemberRoleDialog({ member, saving, onClose, onSave }: TenantMemberRoleDialogProps) {
-  const current = businessRoleOptions.find((option) => member.roles.includes(option.internal))?.value ?? "DATA_VISITOR";
+  useEffect(() => {
+    let alive = true;
+    async function load() {
+      setLoading(true);
+      setError("");
+      try {
+        const [roleItems, memberRoles] = await Promise.all([listTenantRoles(), getTenantMemberRoles(member.user_id)]);
+        if (!alive) return;
+        setRoles(roleItems);
+        setCurrentRoles(memberRoles.roles);
+        setSelectedRoleIds(memberRoles.roles.map((role) => role.id));
+      } catch (err) {
+        if (alive) setError(rbacErrorMessage(err, "成员角色加载失败"));
+      } finally {
+        if (alive) setLoading(false);
+      }
+    }
+    void load();
+    return () => {
+      alive = false;
+    };
+  }, [member.user_id]);
+
+  function toggleRole(role: TenantRoleDTO, checked: boolean) {
+    setSelectedRoleIds((current) => {
+      const next = new Set(current);
+      if (checked) next.add(role.id);
+      else next.delete(role.id);
+      return Array.from(next);
+    });
+  }
+
+  async function save() {
+    setSaving(true);
+    setError("");
+    try {
+      const result = await replaceTenantMemberRoles(member.user_id, selectedRoleIds);
+      onSaved(result);
+    } catch (err) {
+      setError(rbacErrorMessage(err, "成员角色保存失败"));
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <div className="role-dialog-backdrop" role="presentation">
-      <div className="role-dialog" role="dialog" aria-modal="true" aria-labelledby="tenant-member-role-title">
+      <div className="role-dialog role-dialog-wide" role="dialog" aria-modal="true" aria-labelledby="tenant-member-role-title">
         <div>
           <h3 id="tenant-member-role-title">分配角色</h3>
-          <p>为当前租户成员设置一个普通业务角色。</p>
+          <p>为当前租户成员设置一个或多个角色，保存时提交完整角色集合。</p>
         </div>
         <dl className="role-dialog-member">
           <div>
@@ -36,24 +97,44 @@ export function TenantMemberRoleDialog({ member, saving, onClose, onSave }: Tena
             <dd>{roleListLabel(member.roles)}</dd>
           </div>
         </dl>
-        <div className="role-dialog-options" role="radiogroup" aria-label="普通业务角色">
-          {businessRoleOptions.map((option) => (
-            <button
-              className={`role-option${current === option.value ? " role-option-active" : ""}`}
-              disabled={saving}
-              key={option.value}
-              onClick={() => onSave(option.value)}
-              type="button"
-            >
-              <strong>{option.label}</strong>
-              <span>{option.value}</span>
-            </button>
-          ))}
-        </div>
+        {error && <Alert message={error} type="error" showIcon />}
+        {loading ? (
+          <div className="role-dialog-loading"><Spin /> 正在加载角色...</div>
+        ) : (
+          <div className="role-dialog-role-groups">
+            {Object.entries(groupedRoles).map(([category, items]) => (
+              <section className="role-dialog-role-group" key={category}>
+                <Typography.Text strong>{categoryLabel(category as ReturnType<typeof normalizeCategory>)}</Typography.Text>
+                <div className="role-dialog-checkbox-grid">
+                  {items.map((role) => {
+                    const disabled = role.status === "DISABLED";
+                    const checked = selectedRoleIds.includes(role.id);
+                    const changed = checked !== currentRoleIds.has(role.id);
+                    return (
+                      <label className={`role-dialog-checkbox${disabled ? " role-dialog-checkbox-disabled" : ""}`} key={role.id}>
+                        <Checkbox checked={checked} disabled={disabled || saving} onChange={(event) => toggleRole(role, event.target.checked)} />
+                        <span>
+                          <strong>{role.name}</strong>
+                          <small>{role.code}</small>
+                          <em>{role.description || "暂无描述"}</em>
+                        </span>
+                        {changed && <Tag color={checked ? "green" : "red"}>{checked ? "新增" : "移除"}</Tag>}
+                        {disabled && <Tag>已禁用</Tag>}
+                      </label>
+                    );
+                  })}
+                </div>
+              </section>
+            ))}
+          </div>
+        )}
         <div className="role-dialog-actions">
-          <button className="secondary-action" disabled={saving} onClick={onClose} type="button">
+          <Button disabled={saving} onClick={onClose}>
             取消
-          </button>
+          </Button>
+          <Button disabled={loading} loading={saving} type="primary" onClick={() => void save()}>
+            保存
+          </Button>
         </div>
       </div>
     </div>
@@ -61,8 +142,6 @@ export function TenantMemberRoleDialog({ member, saving, onClose, onSave }: Tena
 }
 
 function roleListLabel(roles: TenantRole[]): string {
-  if (roles.includes("TENANT_ADMIN")) return "租户管理员";
-  if (roles.includes("DO")) return "数据拥有者";
-  if (roles.includes("DU")) return "数据访问者";
-  return "未分配";
+  if (!roles.length) return "未分配";
+  return roles.join(" / ");
 }
