@@ -34,7 +34,14 @@ type platformAddUserRequest struct {
 
 // platformAssignAdminRequest 是平台后台授予租户管理员请求体。
 type platformAssignAdminRequest struct {
-	UserID uint64 `json:"user_id"`
+	UserID           uint64 `json:"user_id"`
+	UserIDCamel      uint64 `json:"userId"`
+	Username         string `json:"username"`
+	DisplayName      string `json:"displayName"`
+	DisplayNameSnake string `json:"display_name"`
+	Email            string `json:"email"`
+	Phone            string `json:"phone"`
+	Password         string `json:"password"`
 }
 
 // Dashboard 返回平台后台首页统计数据。
@@ -120,6 +127,16 @@ func (h *PlatformHandler) ListTenantUsers(c *gin.Context) {
 	response.OK(c, gin.H{"users": users})
 }
 
+// SearchUsers 处理平台后台已有用户搜索请求，用于“添加已有用户”弹窗，调用方必须已通过 PLATFORM_ADMIN 中间件。
+func (h *PlatformHandler) SearchUsers(c *gin.Context) {
+	users, err := h.users.SearchUsers(c.Request.Context(), c.Query("q"))
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.OK(c, gin.H{"users": users})
+}
+
 // AddTenantUser 处理平台后台向租户添加成员请求。
 func (h *PlatformHandler) AddTenantUser(c *gin.Context) {
 	actorID, tenantID, ok := platformActorAndTenant(c)
@@ -163,11 +180,18 @@ func (h *PlatformHandler) AssignTenantAdmin(c *gin.Context) {
 		return
 	}
 	var req platformAssignAdminRequest
-	if err := c.ShouldBindJSON(&req); err != nil || req.UserID == 0 {
+	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Fail(c, response.ErrBadRequest)
 		return
 	}
-	result, err := h.roles.AssignTenantAdmin(c.Request.Context(), actorID, tenantID, req.UserID)
+	result, err := h.roles.CreateTenantAdminAccount(c.Request.Context(), actorID, tenantID, service.CreateTenantAdminAccountInput{
+		UserID:      firstUint64(req.UserID, req.UserIDCamel),
+		Username:    req.Username,
+		DisplayName: firstNonEmpty(req.DisplayName, req.DisplayNameSnake),
+		Email:       req.Email,
+		Phone:       req.Phone,
+		Password:    req.Password,
+	})
 	if err != nil {
 		response.Fail(c, err)
 		return
@@ -219,6 +243,16 @@ func platformActorAndTenant(c *gin.Context) (uint64, uint64, bool) {
 		return 0, 0, false
 	}
 	return actorID, tenantID, true
+}
+
+// firstUint64 返回第一个非零整数，用于兼容 snake_case 与 camelCase 请求字段。
+func firstUint64(values ...uint64) uint64 {
+	for _, value := range values {
+		if value != 0 {
+			return value
+		}
+	}
+	return 0
 }
 
 // platformTenantID 从路径参数中解析租户 ID，失败时写入请求错误响应。

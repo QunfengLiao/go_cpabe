@@ -7,12 +7,30 @@ import (
 	"strings"
 
 	"go-cpabe/backend/internal/domain"
+	"go-cpabe/backend/internal/pkg/auth"
 	"go-cpabe/backend/internal/pkg/response"
+	"go-cpabe/backend/internal/pkg/validator"
 	"go-cpabe/backend/internal/repository"
 )
 
 // tenantCodePattern 约束租户编码只包含小写字母、数字和短横线，便于 URL 和缓存使用。
 var tenantCodePattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+
+// tenantAdminUsernamePattern 约束后台账号名只使用稳定 ASCII 字符，避免后续接入用户名登录时出现歧义。
+var tenantAdminUsernamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]{3,64}$`)
+
+// defaultTenantAdminPassword 是平台代建租户管理员时的固定初始密码，仅用于创建时哈希入库并强制首次改密。
+const defaultTenantAdminPassword = "lqf999.."
+
+// CreateTenantAdminAccountInput 表示平台后台创建或复用租户管理员账号所需的输入。
+type CreateTenantAdminAccountInput struct {
+	UserID      uint64
+	Username    string
+	DisplayName string
+	Email       string
+	Phone       string
+	Password    string
+}
 
 // PlatformTenantService 负责平台后台的租户列表、创建、详情和状态管理。
 type PlatformTenantService struct {
@@ -184,6 +202,19 @@ func (s *PlatformTenantUserService) ListTenantUsers(ctx context.Context, tenantI
 	return result, nil
 }
 
+// SearchUsers 为平台成员接入页面搜索已有账号，只返回非敏感展示字段，供人工选择后再加入租户。
+func (s *PlatformTenantUserService) SearchUsers(ctx context.Context, query string) ([]domain.UserDTO, error) {
+	users, err := s.users.SearchUsers(ctx, strings.TrimSpace(query), 20)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]domain.UserDTO, 0, len(users))
+	for _, user := range users {
+		result = append(result, domain.ToUserDTO(user, true))
+	}
+	return result, nil
+}
+
 // AddTenantUser 将已存在用户加入启用租户，并记录成员新增审计事件。
 func (s *PlatformTenantUserService) AddTenantUser(ctx context.Context, actorID uint64, tenantID uint64, userID uint64) (domain.TenantMemberDTO, error) {
 	tenant, err := s.findTenant(ctx, tenantID)
@@ -262,6 +293,47 @@ func (s *PlatformRoleService) EnsurePlatformAdmin(ctx context.Context, userID ui
 	return s.tenants.EnsureUserRole(ctx, nil, userID, domain.RolePlatformAdmin)
 }
 
+// CreateTenantAdminAccount 为指定租户创建或复用租户管理员账号，并保证成员关系和 TENANT_ADMIN 授权同时存在。
+func (s *PlatformRoleService) CreateTenantAdminAccount(ctx context.Context, actorID uint64, tenantID uint64, input CreateTenantAdminAccountInput) (domain.TenantAdminAssignmentDTO, error) {
+	if input.UserID != 0 {
+		return s.AssignTenantAdmin(ctx, actorID, tenantID, input.UserID)
+	}
+	if _, err := s.findEnabledTenant(ctx, tenantID); err != nil {
+		return domain.TenantAdminAssignmentDTO{}, err
+	}
+	normalized := normalizeTenantAdminAccountInput(input)
+	if err := validateTenantAdminAccountInput(normalized); err != nil {
+		return domain.TenantAdminAssignmentDTO{}, err
+	}
+	if normalized.Password == "" {
+		normalized.Password = defaultTenantAdminPassword
+	}
+	user, created, err := s.findOrCreateTenantAdminUser(ctx, normalized)
+	if err != nil {
+		return domain.TenantAdminAssignmentDTO{}, err
+	}
+	// 平台代建账号必须先进入 tenant_users，再写入租户内角色；这样权限判断始终有明确租户身份作为边界。
+	if err := s.tenants.EnsureTenantUser(ctx, tenantID, user.ID, domain.TenantUserStatusActive); err != nil {
+		return domain.TenantAdminAssignmentDTO{}, err
+	}
+	if err := s.tenants.EnsureUserRole(ctx, &tenantID, user.ID, domain.RoleTenantAdmin); err != nil {
+		return domain.TenantAdminAssignmentDTO{}, err
+	}
+	action := "tenant_admin.assigned"
+	if created {
+		action = "tenant_admin.account_created"
+	}
+	if err := s.audit.Record(ctx, AuditEvent{ActorUserID: actorID, Action: action, TargetType: "tenant_admin", TargetID: user.ID, Metadata: map[string]any{"tenant_id": tenantID}}); err != nil {
+		return domain.TenantAdminAssignmentDTO{}, err
+	}
+	userDTO := domain.ToUserDTO(*user, true)
+	result := domain.TenantAdminAssignmentDTO{TenantID: tenantID, UserID: user.ID, Role: domain.RoleTenantAdmin, Assigned: true, CreatedUser: created, User: &userDTO}
+	if created && normalized.Password == defaultTenantAdminPassword {
+		result.TemporaryPassword = defaultTenantAdminPassword
+	}
+	return result, nil
+}
+
 // AssignTenantAdmin 为已加入租户的用户授予租户管理员角色，并记录审计事件。
 func (s *PlatformRoleService) AssignTenantAdmin(ctx context.Context, actorID uint64, tenantID uint64, userID uint64) (domain.TenantAdminAssignmentDTO, error) {
 	if err := s.ensureTenantMember(ctx, tenantID, userID); err != nil {
@@ -292,6 +364,77 @@ func (s *PlatformRoleService) RemoveTenantAdmin(ctx context.Context, actorID uin
 		return domain.TenantAdminAssignmentDTO{}, err
 	}
 	return domain.TenantAdminAssignmentDTO{TenantID: tenantID, UserID: userID, Role: domain.RoleTenantAdmin, Removed: true}, nil
+}
+
+// findEnabledTenant 校验租户存在且启用，供平台后台创建成员或授权前统一收口租户状态边界。
+func (s *PlatformRoleService) findEnabledTenant(ctx context.Context, tenantID uint64) (*domain.Tenant, error) {
+	tenant, err := s.tenants.FindTenantByID(ctx, tenantID)
+	if err != nil {
+		if errors.Is(err, repository.ErrTenantNotFound) {
+			return nil, response.ErrTenantNotFound
+		}
+		return nil, err
+	}
+	if tenant.Status != domain.TenantStatusEnabled {
+		return nil, response.ErrTenantDisabled
+	}
+	return tenant, nil
+}
+
+// normalizeTenantAdminAccountInput 统一清理平台后台表单输入，避免大小写或空格导致邮箱重复判断失效。
+func normalizeTenantAdminAccountInput(input CreateTenantAdminAccountInput) CreateTenantAdminAccountInput {
+	input.Username = strings.TrimSpace(input.Username)
+	input.DisplayName = strings.TrimSpace(input.DisplayName)
+	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
+	input.Phone = strings.TrimSpace(input.Phone)
+	input.Password = strings.TrimSpace(input.Password)
+	return input
+}
+
+// validateTenantAdminAccountInput 校验平台代建账号的外部输入边界；密码可为空，由服务端使用固定初始密码。
+func validateTenantAdminAccountInput(input CreateTenantAdminAccountInput) error {
+	if !tenantAdminUsernamePattern.MatchString(input.Username) {
+		return response.ErrBadRequest
+	}
+	if !validator.ValidNickname(input.DisplayName) {
+		return response.ErrBadRequest
+	}
+	if !validator.ValidEmail(input.Email) {
+		return response.ErrInvalidEmail
+	}
+	if len([]rune(input.Phone)) > 32 {
+		return response.ErrBadRequest
+	}
+	return nil
+}
+
+// findOrCreateTenantAdminUser 按邮箱复用已有用户；仅新建账号时写入初始密码哈希和首次改密标记。
+func (s *PlatformRoleService) findOrCreateTenantAdminUser(ctx context.Context, input CreateTenantAdminAccountInput) (*domain.User, bool, error) {
+	user, err := s.users.FindByEmail(ctx, input.Email)
+	if err == nil {
+		return user, false, nil
+	}
+	if !errors.Is(err, repository.ErrUserNotFound) {
+		return nil, false, err
+	}
+	passwordHash, err := auth.HashPassword(input.Password)
+	if err != nil {
+		return nil, false, err
+	}
+	user = &domain.User{
+		Username:           input.Username,
+		Email:              input.Email,
+		PasswordHash:       passwordHash,
+		Nickname:           input.DisplayName,
+		Phone:              input.Phone,
+		Role:               domain.RoleDataUser,
+		Status:             domain.StatusActive,
+		MustChangePassword: true,
+	}
+	if err := s.users.Create(ctx, user); err != nil {
+		return nil, false, err
+	}
+	return user, true, nil
 }
 
 // ensureTenantMember 校验用户存在、租户启用且用户是 active 成员。
@@ -387,15 +530,10 @@ func tenantStatsByID(stats []repository.TenantUsageStats) map[uint64]repository.
 
 // platformTenantDTO 将租户实体转换为平台后台租户 DTO。
 func platformTenantDTO(tenant domain.Tenant) domain.TenantDTO {
+	dto := toTenantDTO(tenant, nil)
 	createdAt := tenant.CreatedAt
 	updatedAt := tenant.UpdatedAt
-	return domain.TenantDTO{
-		TenantID:    tenant.ID,
-		TenantName:  tenant.Name,
-		TenantCode:  tenant.Code,
-		Status:      tenant.Status,
-		Description: tenant.Description,
-		CreatedAt:   &createdAt,
-		UpdatedAt:   &updatedAt,
-	}
+	dto.CreatedAt = &createdAt
+	dto.UpdatedAt = &updatedAt
+	return dto
 }
