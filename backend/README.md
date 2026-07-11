@@ -25,11 +25,30 @@ cp .env.example .env
 
 ## 数据库
 
-开发环境启动时会执行 `AutoMigrate`。受控环境建议执行：
+HTTP 服务默认不再执行 `AutoMigrate` 或初始化数据，避免启动时反复触发 `information_schema`
+检查和 seed 写入。首次部署或表结构变化时显式执行：
 
 ```bash
-mysql < migrations/001_create_users.sql
+go run ./cmd/migrate
 ```
+
+基础租户、基础角色和历史用户兼容数据通过独立 seed 命令写入：
+
+```bash
+go run ./cmd/seed
+```
+
+需要演示策略、组织和属性数据时再追加 `-demo`：
+
+```bash
+go run ./cmd/seed -demo
+```
+
+兼容开发环境的一键启动仍可通过环境变量显式开启，但默认值必须保持关闭：
+
+- `RUN_AUTO_MIGRATE=false`
+- `RUN_SEED=false`
+- `RUN_DEMO_SEED=false`
 
 ## 运行
 

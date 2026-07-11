@@ -21,6 +21,27 @@ type RoleCode string
 // RoleScope 表示角色作用域，区分平台级权限和租户内权限。
 type RoleScope string
 
+// RoleScopeType 表示新 RBAC 角色作用域，数据库授权事实源使用大写枚举值。
+type RoleScopeType string
+
+// RoleCategory 表示角色治理语义分类，用于区分治理、业务和能力角色。
+type RoleCategory string
+
+// RoleStatus 表示角色定义是否仍可产生权限或被新分配。
+type RoleStatus string
+
+// UserRoleAssignmentStatus 表示用户角色授权记录的生命周期状态。
+type UserRoleAssignmentStatus string
+
+// PermissionStatus 表示权限点是否仍可绑定和参与授权判断。
+type PermissionStatus string
+
+// PermissionScopeType 表示权限点所属平台或租户作用域。
+type PermissionScopeType string
+
+// AssignmentSource 表示用户角色授权记录的来源，便于区分系统迁移和人工分配。
+type AssignmentSource string
+
 const (
 	// RoleAdmin 是旧单租户管理员角色，只允许本地受控命令创建。
 	RoleAdmin UserRole = "admin"
@@ -70,6 +91,61 @@ const (
 )
 
 const (
+	// RoleScopeTypePlatform 表示平台治理作用域，不得自动进入租户业务权限。
+	RoleScopeTypePlatform RoleScopeType = "PLATFORM"
+	// RoleScopeTypeTenant 表示租户业务作用域，必须绑定有效租户成员关系。
+	RoleScopeTypeTenant RoleScopeType = "TENANT"
+)
+
+const (
+	// RoleCategoryGovernance 表示治理角色，例如平台管理员和租户管理员。
+	RoleCategoryGovernance RoleCategory = "GOVERNANCE"
+	// RoleCategoryBusiness 表示租户自定义业务角色，只能由当前租户创建和维护。
+	RoleCategoryBusiness RoleCategory = "BUSINESS"
+	// RoleCategoryCapability 表示系统内置能力角色，例如 DO 和 DU。
+	RoleCategoryCapability RoleCategory = "CAPABILITY"
+)
+
+const (
+	// RoleStatusActive 表示角色可产生权限并可被分配。
+	RoleStatusActive RoleStatus = "ACTIVE"
+	// RoleStatusDisabled 表示角色被逻辑禁用，不再产生权限也不能新分配。
+	RoleStatusDisabled RoleStatus = "DISABLED"
+)
+
+const (
+	// UserRoleStatusActive 表示授权记录当前有效。
+	UserRoleStatusActive UserRoleAssignmentStatus = "ACTIVE"
+	// UserRoleStatusRevoked 表示授权已被撤销，但历史记录保留。
+	UserRoleStatusRevoked UserRoleAssignmentStatus = "REVOKED"
+	// UserRoleStatusExpired 表示授权已过期，查询时也会动态排除 expires_at 过期记录。
+	UserRoleStatusExpired UserRoleAssignmentStatus = "EXPIRED"
+)
+
+const (
+	// PermissionStatusActive 表示权限点可用于角色绑定和授权判断。
+	PermissionStatusActive PermissionStatus = "ACTIVE"
+	// PermissionStatusDisabled 表示权限点被禁用，不参与授权判断。
+	PermissionStatusDisabled PermissionStatus = "DISABLED"
+)
+
+const (
+	// PermissionScopePlatform 表示平台治理权限。
+	PermissionScopePlatform PermissionScopeType = "PLATFORM"
+	// PermissionScopeTenant 表示租户业务权限。
+	PermissionScopeTenant PermissionScopeType = "TENANT"
+)
+
+const (
+	// AssignmentSourceSystem 表示系统初始化或内部受控流程产生的授权。
+	AssignmentSourceSystem AssignmentSource = "SYSTEM"
+	// AssignmentSourceManual 表示管理员通过接口手动分配的授权。
+	AssignmentSourceManual AssignmentSource = "MANUAL"
+	// AssignmentSourceMigration 表示历史数据迁移产生的授权。
+	AssignmentSourceMigration AssignmentSource = "MIGRATION"
+)
+
+const (
 	// TokenTypeAccess 表示短期访问 token。
 	TokenTypeAccess TokenType = "access"
 	// TokenTypeRefresh 表示长期刷新 token。
@@ -114,6 +190,57 @@ func (r RoleCode) TenantScoped() bool {
 // Valid 判断角色作用域是否属于平台级或租户级。
 func (s RoleScope) Valid() bool {
 	return s == RoleScopePlatform || s == RoleScopeTenant
+}
+
+// Valid 判断新 RBAC 角色作用域是否属于平台或租户枚举。
+func (s RoleScopeType) Valid() bool {
+	return s == RoleScopeTypePlatform || s == RoleScopeTypeTenant
+}
+
+// Valid 判断角色分类是否属于本阶段支持的治理、业务或能力枚举。
+func (c RoleCategory) Valid() bool {
+	return c == RoleCategoryGovernance || c == RoleCategoryBusiness || c == RoleCategoryCapability
+}
+
+// Valid 判断角色状态是否属于本阶段支持的有效或禁用枚举。
+func (s RoleStatus) Valid() bool {
+	return s == RoleStatusActive || s == RoleStatusDisabled
+}
+
+// Valid 判断用户角色授权状态是否属于有效、撤销或过期枚举。
+func (s UserRoleAssignmentStatus) Valid() bool {
+	return s == UserRoleStatusActive || s == UserRoleStatusRevoked || s == UserRoleStatusExpired
+}
+
+// Valid 判断权限状态是否属于有效或禁用枚举。
+func (s PermissionStatus) Valid() bool {
+	return s == PermissionStatusActive || s == PermissionStatusDisabled
+}
+
+// Valid 判断权限作用域是否属于平台或租户枚举。
+func (s PermissionScopeType) Valid() bool {
+	return s == PermissionScopePlatform || s == PermissionScopeTenant
+}
+
+// Valid 判断授权来源是否属于系统、人工或迁移来源。
+func (s AssignmentSource) Valid() bool {
+	return s == AssignmentSourceSystem || s == AssignmentSourceManual || s == AssignmentSourceMigration
+}
+
+// RoleScopeTypeFromLegacy 将旧小写 scope 转换为新 RBAC 大写作用域，供迁移期兼容读取。
+func RoleScopeTypeFromLegacy(scope RoleScope) RoleScopeType {
+	if scope == RoleScopePlatform {
+		return RoleScopeTypePlatform
+	}
+	return RoleScopeTypeTenant
+}
+
+// LegacyRoleScopeFromType 将新 RBAC 作用域转换为旧 scope 字段，避免过渡期旧代码读到空值。
+func LegacyRoleScopeFromType(scope RoleScopeType) RoleScope {
+	if scope == RoleScopeTypePlatform {
+		return RoleScopePlatform
+	}
+	return RoleScopeTenant
 }
 
 // MapLegacyUserRole 将旧单租户角色映射为默认租户内角色，用于迁移历史用户授权。

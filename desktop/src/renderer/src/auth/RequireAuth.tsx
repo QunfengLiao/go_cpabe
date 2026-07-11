@@ -6,6 +6,10 @@ export function RequireAuth() {
   const auth = useAuth();
   const location = useLocation();
 
+  if (!auth.authReady) {
+    return <div className="route-loading">正在恢复账号上下文...</div>;
+  }
+
   if (!auth.isAuthenticated) {
     const hasSwitchableAccount = auth.cachedAccounts.some((account) => auth.hasAccountSession(account.userId));
     if (hasSwitchableAccount) {

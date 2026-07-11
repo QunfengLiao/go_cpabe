@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"go-cpabe/backend/internal/domain"
@@ -24,6 +25,7 @@ type UserRepository interface {
 	FindByEmail(ctx context.Context, email string) (*domain.User, error)
 	FindByID(ctx context.Context, id uint64) (*domain.User, error)
 	ListAll(ctx context.Context) ([]domain.User, error)
+	SearchUsers(ctx context.Context, query string, limit int) ([]domain.User, error)
 	CountUsers(ctx context.Context) (int64, error)
 	Create(ctx context.Context, user *domain.User) error
 	UpdateProfile(ctx context.Context, id uint64, input UpdateProfileInput) (*domain.User, error)
@@ -73,6 +75,27 @@ func (r *GormUserRepository) ListAll(ctx context.Context) ([]domain.User, error)
 		return nil, err
 	}
 	return users, nil
+}
+
+// SearchUsers 按用户名、邮箱、手机号或昵称搜索用户，仅返回平台接入页面展示所需的非敏感字段。
+func (r *GormUserRepository) SearchUsers(ctx context.Context, query string, limit int) ([]domain.User, error) {
+	keyword := strings.TrimSpace(query)
+	if keyword == "" {
+		return []domain.User{}, nil
+	}
+	if limit <= 0 || limit > 50 {
+		// 搜索接口用于人工选择用户，不允许无界拉取 users 表，避免平台页面误变成全量用户导出入口。
+		limit = 20
+	}
+	like := "%" + keyword + "%"
+	var users []domain.User
+	err := r.db.WithContext(ctx).
+		Select("id, username, email, nickname, phone, role, avatar_url, bio, birthday, must_change_password, status, created_at, updated_at").
+		Where("username LIKE ? OR email LIKE ? OR phone LIKE ? OR nickname LIKE ?", like, like, like, like).
+		Order("id ASC").
+		Limit(limit).
+		Find(&users).Error
+	return users, err
 }
 
 // CountUsers 只统计未软删除用户数量，避免 dashboard 为计数加载整张 users 表。

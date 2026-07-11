@@ -1,13 +1,24 @@
-import type { ValidationError } from "./tree/types";
+import { PolicyRuleSummary } from "./PolicyRuleSummary";
+import { parsePolicyExpressionToTokens, summarizePolicyTree } from "./tree/ruleSummary";
+import type { PolicyAttribute, PolicyTreeNode, ValidationError } from "./tree/types";
 
-export function PolicyExpressionPreview({ expression, errors }: { expression: string; errors: ValidationError[] }) {
+export function PolicyExpressionPreview({
+  expression,
+  tree,
+  attributes = [],
+  errors
+}: {
+  expression: string;
+  tree: PolicyTreeNode | null;
+  attributes?: PolicyAttribute[];
+  errors: ValidationError[];
+}) {
+  const tokens = errors.length ? [] : tree ? summarizePolicyTree(tree, attributes) : parsePolicyExpressionToTokens(expression, attributes);
   return (
-    <section className={`expression-preview-card${errors.length ? " expression-preview-card-invalid" : ""}`}>
-      <div>
-        <span>策略表达式</span>
-        <strong>{errors.length ? "表达式待修正" : "实时预览"}</strong>
-      </div>
-      <code>{errors.length ? "请先处理校验结果中的访问树问题" : expression || "从左侧添加节点后生成表达式"}</code>
-    </section>
+    <PolicyRuleSummary
+      title="访问规则摘要"
+      tokens={tokens}
+      emptyText={errors.length ? "请先处理校验结果中的访问树问题" : "从左侧添加节点后生成规则"}
+    />
   );
 }

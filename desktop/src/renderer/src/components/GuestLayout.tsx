@@ -1,9 +1,20 @@
+import { useEffect } from "react";
 import { Outlet, useParams } from "react-router-dom";
 import { TenantBrandPanel } from "./TenantBrandPanel";
 import { ThemeSwitcher } from "./ThemeSwitcher";
+import { applyTenantBranding, demoTenantBranding } from "../theme/tenantBranding";
 
 export function GuestLayout() {
   const { tenantCode } = useParams();
+
+  useEffect(() => {
+    applyTenantBranding({
+      tenant_id: 0,
+      tenant_code: tenantCode ?? "common",
+      tenant_name: tenantCode ?? "通用入口",
+      branding: demoTenantBranding(tenantCode)
+    });
+  }, [tenantCode]);
 
   return (
     <main className="guest-shell">

@@ -25,6 +25,9 @@ type Config struct {
 	AvatarUploadDir string
 	AvatarURLPrefix string
 	AvatarMaxSize   int64
+	RunAutoMigrate   bool
+	RunSeed          bool
+	SeedDemoData    bool
 }
 
 // Load 从环境变量和可选 .env 文件中加载运行配置，并校验必要的密钥和数据库连接信息。
@@ -59,6 +62,9 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	if cfg.AccessTokenTTL < time.Minute {
+		return Config{}, fmt.Errorf("ACCESS_TOKEN_TTL must be at least 1m, got %s", cfg.AccessTokenTTL)
+	}
 	cfg.RefreshTokenTTL, err = getenvDuration("REFRESH_TOKEN_TTL", 7*24*time.Hour)
 	if err != nil {
 		return Config{}, err
@@ -66,6 +72,24 @@ func Load() (Config, error) {
 	cfg.AvatarMaxSize, err = getenvInt64("AVATAR_MAX_SIZE", 2*1024*1024)
 	if err != nil {
 		return Config{}, err
+	}
+	cfg.RunAutoMigrate, err = getenvBool("RUN_AUTO_MIGRATE", false)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.RunSeed, err = getenvBool("RUN_SEED", false)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.SeedDemoData, err = getenvBool("RUN_DEMO_SEED", false)
+	if err != nil {
+		return Config{}, err
+	}
+	if legacyDemoSeed := os.Getenv("SEED_DEMO_DATA"); legacyDemoSeed != "" {
+		cfg.SeedDemoData, err = strconv.ParseBool(legacyDemoSeed)
+		if err != nil {
+			return Config{}, err
+		}
 	}
 	return cfg, nil
 }
@@ -160,6 +184,15 @@ func getenvInt64(key string, fallback int64) (int64, error) {
 		return fallback, nil
 	}
 	return strconv.ParseInt(value, 10, 64)
+}
+
+// getenvBool 读取布尔环境变量，未设置时返回默认值。
+func getenvBool(key string, fallback bool) (bool, error) {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback, nil
+	}
+	return strconv.ParseBool(value)
 }
 
 // getenvDuration 读取 Go duration 格式的环境变量，未设置时返回默认时长。

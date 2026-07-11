@@ -51,6 +51,9 @@ func TestBootstrapDefaultTenantIsIdempotent(t *testing.T) {
 	if context.CurrentTenantID == nil || len(context.Tenants) != 1 || len(context.Tenants[0].Roles) != 1 || context.Tenants[0].Roles[0] != domain.RoleDO {
 		t.Fatalf("unexpected tenant context: %+v", context)
 	}
+	if len(context.PlatformRoles) != 0 {
+		t.Fatalf("normal tenant user must not receive platform roles: %+v", context.PlatformRoles)
+	}
 }
 
 // TestPlatformAdminCanEnterAnyActiveTenant 验证平台管理员可进入任意启用租户，但不会被写入租户成员表。
@@ -92,6 +95,9 @@ func TestPlatformAdminCanEnterAnyActiveTenant(t *testing.T) {
 	}
 	if len(context.Tenants) != 2 {
 		t.Fatalf("expected two active tenants, got %+v", context)
+	}
+	if len(context.PlatformRoles) != 1 || context.PlatformRoles[0] != domain.RolePlatformAdmin {
+		t.Fatalf("platform_roles must come from platform role assignments, got %+v", context.PlatformRoles)
 	}
 	for _, tenant := range context.Tenants {
 		if len(tenant.Roles) != 1 || tenant.Roles[0] != domain.RolePlatformAdmin {

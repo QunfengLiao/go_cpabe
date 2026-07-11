@@ -1,4 +1,5 @@
 import { request } from "./request";
+import { listTenantPolicyAttributes } from "./tenantOrg";
 import type { AccessPolicy, PolicyAttribute, PolicyStatus, PolicyTemplate, PolicyTreeNode } from "../components/access-policy/tree/types";
 
 interface ListResult<T> {
@@ -15,8 +16,7 @@ interface PolicyPayload {
 }
 
 export async function listAvailableAttributes(tenantId: string): Promise<PolicyAttribute[]> {
-  const data = await request<ListResult<PolicyAttribute>>(`/tenants/${tenantId}/access-policy/attributes`);
-  return data.items;
+  return listTenantPolicyAttributes(tenantId);
 }
 
 export async function listAvailableTemplates(tenantId: string): Promise<PolicyTemplate[]> {

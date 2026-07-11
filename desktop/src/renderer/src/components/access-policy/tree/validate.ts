@@ -1,4 +1,4 @@
-import { attributeCode, attributeType, attributeValues, type PolicyAttribute, type PolicyTreeNode, type ValidationError } from "./types";
+import { attributeCode, attributeOperators, attributeType, attributeValues, findAttributeValue, type PolicyAttribute, type PolicyTreeNode, type ValidationError } from "./types";
 
 export function validateTree(tree: PolicyTreeNode | null, attributes: PolicyAttribute[]): ValidationError[] {
   if (!tree) return [{ path: "root", message: "访问树不能为空" }];
@@ -24,14 +24,23 @@ function validateNode(node: PolicyTreeNode, attributes: Map<string, PolicyAttrib
     errors.push({ path, message: "属性未开放或不存在" });
     return errors;
   }
-  if (node.operator !== "=" && node.operator !== "!=") {
-    errors.push({ path, message: "操作符只能是 = 或 !=" });
+  if (!attributeOperators(attr).includes(node.operator)) {
+    errors.push({ path, message: "操作符不适用于当前属性类型" });
   }
   if (node.value === "" || node.value === null || node.value === undefined) {
     errors.push({ path, message: "属性值不能为空" });
   }
   if (attributeType(attr) === "enum" && !attributeValues(attr).includes(String(node.value))) {
     errors.push({ path, message: "属性值不在可选值范围内" });
+  }
+  if (attributeType(attr) === "tree") {
+    const matched = findAttributeValue(attr, String(node.value));
+    if (!matched) {
+      errors.push({ path, message: "部门值不在当前租户组织树中" });
+    }
+    if (node.valueId && matched?.valueId && node.valueId !== matched.valueId) {
+      errors.push({ path, message: "部门值标识与当前租户组织树不一致" });
+    }
   }
   if (attributeType(attr) === "number" && Number.isNaN(Number(node.value))) {
     errors.push({ path, message: "属性值必须是数字" });

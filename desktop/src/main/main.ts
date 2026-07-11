@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain } from "electron";
 import path from "node:path";
+import { getDeviceID, hasAccountSession, logoutAccountSession, refreshAccountSession, removeAccountSession, saveAccountSession } from "./authSessionStore";
 import { getCredentialByEmail, getSavedEmails, removeCredential, saveCredential } from "./credentialStore";
 
 function registerCredentialHandlers(): void {
@@ -9,6 +10,15 @@ function registerCredentialHandlers(): void {
   ipcMain.handle("credential:remove", (_event, email: string) => removeCredential(email));
 }
 
+function registerAuthSessionHandlers(): void {
+  ipcMain.handle("auth-session:device-id", () => getDeviceID());
+  ipcMain.handle("auth-session:save", (_event, accountId: string, refreshToken: string, expiresAt?: number) => saveAccountSession(accountId, refreshToken, expiresAt));
+  ipcMain.handle("auth-session:has", (_event, accountId: string) => hasAccountSession(accountId));
+  ipcMain.handle("auth-session:refresh", (_event, accountId: string) => refreshAccountSession(accountId));
+  ipcMain.handle("auth-session:logout", (_event, accountId: string) => logoutAccountSession(accountId));
+  ipcMain.handle("auth-session:remove", (_event, accountId: string) => removeAccountSession(accountId));
+}
+
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
     width: 1280,
@@ -16,18 +26,21 @@ function createWindow(): void {
     minWidth: 1280,
     minHeight: 760,
     title: "CP-ABE 加密文件共享系统",
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, "../preload/preload.js"),
       contextIsolation: true,
       nodeIntegration: false
     }
   });
+  mainWindow.setMenuBarVisibility(false);
 
   void mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
 }
 
 void app.whenReady().then(() => {
   registerCredentialHandlers();
+  registerAuthSessionHandlers();
   createWindow();
 
   app.on("activate", () => {

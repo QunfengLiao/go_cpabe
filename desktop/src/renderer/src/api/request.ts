@@ -2,12 +2,10 @@ import type { ApiEnvelope, RefreshData } from "../types";
 import {
   expireCurrentSession,
   getCurrentCachedAccount,
-  getCurrentTenantId,
-  getRefreshToken,
-  saveRefreshedSession,
-  saveTokens,
-  getAccessToken
+  saveRefreshedSession
 } from "./authStorage";
+import { refreshAccountSession } from "./authSessionStore";
+import { getAuthRuntime, isAuthorizationReady, setAuthRuntimeFromSnapshot, waitForAuthorizationReady, waitForAuthReady, type AuthRuntimeSnapshot } from "./authRuntime";
 
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:18080/api/v1").replace(/\/+$/, "");
 
@@ -26,26 +24,62 @@ export class ApiError extends Error {
 type RequestOptions = RequestInit & {
   skipAuth?: boolean;
   skipRefresh?: boolean;
+  cacheKey?: string;
+  cacheTtlMs?: number;
 };
 
 let refreshPromise: Promise<RefreshData> | null = null;
 let onAuthExpired: ((message: string) => void) | null = null;
+const DEFAULT_GET_CACHE_TTL_MS = 800;
+const inflightGetRequests = new Map<string, Promise<unknown>>();
+const responseCache = new Map<string, { expiresAt: number; value: unknown }>();
 
 export function setAuthExpiredHandler(handler: ((message: string) => void) | null): void {
   onAuthExpired = handler;
 }
 
+export function clearRequestCache(): void {
+  responseCache.clear();
+  inflightGetRequests.clear();
+}
+
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const response = await rawRequest<T>(path, options);
-  return response;
+  const cacheKey = cacheKeyFor(path, options);
+  if (!cacheKey) {
+    const method = String(options.method ?? "GET").toUpperCase();
+    const result = await rawRequest<T>(path, options);
+    if (method !== "GET") {
+      // 写操作会改变列表、详情或当前用户资料，清空短缓存避免随后刷新读到旧快照。
+      responseCache.clear();
+    }
+    return result;
+  }
+
+  const cached = responseCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.value as T;
+  }
+  const inflight = inflightGetRequests.get(cacheKey);
+  if (inflight) return inflight as Promise<T>;
+
+  const promise = rawRequest<T>(path, options)
+    .then((value) => {
+      responseCache.set(cacheKey, { value, expiresAt: Date.now() + (options.cacheTtlMs ?? DEFAULT_GET_CACHE_TTL_MS) });
+      return value;
+    })
+    .finally(() => {
+      inflightGetRequests.delete(cacheKey);
+    });
+  inflightGetRequests.set(cacheKey, promise);
+  return promise;
 }
 
 async function rawRequest<T>(path: string, options: RequestOptions): Promise<T> {
-  const response = await fetch(buildURL(path), buildOptions(options));
+  const response = await fetch(buildURL(path), await buildOptions(path, options));
   if (response.status === 401 && !options.skipRefresh) {
     const refreshed = await tryRefresh();
     if (refreshed) {
-      const retry = await fetch(buildURL(path), buildOptions(options));
+      const retry = await fetch(buildURL(path), await buildOptions(path, options));
       return parseResponse<T>(retry);
     }
   }
@@ -56,23 +90,74 @@ function buildURL(path: string): string {
   return `${API_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
-function buildOptions(options: RequestOptions): RequestInit {
+async function buildOptions(path: string, options: RequestOptions): Promise<RequestInit> {
   const headers = new Headers(options.headers);
   if (!(options.body instanceof FormData) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
-  const token = getAccessToken();
+  const snapshot = await resolveRequestContext(path, options);
+  const token = snapshot.accessToken;
   if (!options.skipAuth && token) {
     headers.set("Authorization", `Bearer ${token}`);
   }
-  const tenantId = getCurrentTenantId();
-  if (!options.skipAuth && tenantId && !headers.has("X-Tenant-Id")) {
-    headers.set("X-Tenant-Id", tenantId);
+  if (!options.skipAuth && isTenantApi(path) && snapshot.currentUserId && snapshot.currentTenantId && !headers.has("X-Tenant-Id")) {
+    headers.set("X-Tenant-Id", snapshot.currentTenantId);
   }
   return {
     ...options,
     headers
   };
+}
+
+function cacheKeyFor(path: string, options: RequestOptions): string {
+  const method = String(options.method ?? "GET").toUpperCase();
+  if (method !== "GET" || options.skipAuth) return "";
+  const snapshot = getAuthRuntime();
+  return options.cacheKey ?? `${snapshot.currentUserId}|${snapshot.currentTenantId}|${snapshot.generation}|${snapshot.authorizationGeneration}|${method}|${buildURL(path)}`;
+}
+
+async function resolveRequestContext(path: string, options: RequestOptions): Promise<AuthRuntimeSnapshot> {
+  if (options.skipAuth || isPublicApi(path)) return getAuthRuntime();
+  const snapshot = isTenantApi(path)
+    ? isAuthorizationContextApi(path)
+      ? await waitForAuthReady()
+      : await waitForAuthorizationReady()
+    : getAuthRuntime();
+  if (isTenantApi(path)) {
+    if (!snapshot.accessToken || !snapshot.currentUserId) {
+      throw new ApiError("请先登录后再访问租户资源", 401, "AUTH_REQUIRED");
+    }
+    if (!snapshot.currentTenantId || !snapshot.currentTenant) {
+      throw new ApiError("当前账号没有可用租户上下文，请先选择租户", 403, "TENANT_CONTEXT_MISSING");
+    }
+    if (!isAuthorizationContextApi(path)) {
+      if (snapshot.authorizationStatus === "error") {
+        throw new ApiError(snapshot.authorizationError || "授权上下文加载失败", 403, "AUTHORIZATION_CONTEXT_ERROR");
+      }
+      if (!isAuthorizationReady(snapshot)) {
+        throw new ApiError("授权上下文尚未就绪，请稍后重试", 403, "AUTHORIZATION_CONTEXT_NOT_READY");
+      }
+    }
+  }
+  return snapshot;
+}
+
+function isPublicApi(path: string): boolean {
+  const normalized = path.startsWith("/") ? path : `/${path}`;
+  return normalized.startsWith("/auth/");
+}
+
+function isTenantApi(path: string): boolean {
+  const normalized = path.startsWith("/") ? path : `/${path}`;
+  return (
+    normalized.startsWith("/tenant/") ||
+    /^\/tenants\/[^/]+\/(access-policy|access-policies|org-units|members|users(?:$|\/[^/]+\/attributes|\/me\/attributes))/.test(normalized)
+  );
+}
+
+function isAuthorizationContextApi(path: string): boolean {
+  const normalized = path.startsWith("/") ? path : `/${path}`;
+  return normalized === "/tenant/me/authorization";
 }
 
 async function parseResponse<T>(response: Response): Promise<T> {
@@ -95,36 +180,23 @@ async function parseResponse<T>(response: Response): Promise<T> {
 }
 
 async function tryRefresh(): Promise<boolean> {
-  const refreshToken = getRefreshToken();
-  if (!refreshToken) {
+  const account = getCurrentCachedAccount();
+  if (!account) {
     expireAuth();
     return false;
   }
   try {
-    refreshPromise ??= refreshTokenRequest(refreshToken).finally(() => {
+    refreshPromise ??= refreshAccountSession(account.userId).finally(() => {
       refreshPromise = null;
     });
     const data = await refreshPromise;
-    const account = getCurrentCachedAccount();
-    if (account) {
-      saveRefreshedSession(account, data);
-    } else {
-      saveTokens(data.access_token, data.refresh_token ?? refreshToken);
-    }
+    const snapshot = saveRefreshedSession(account, data);
+    setAuthRuntimeFromSnapshot(snapshot, getAuthRuntime().generation);
     return true;
   } catch {
     expireAuth();
     return false;
   }
-}
-
-async function refreshTokenRequest(refreshToken: string): Promise<RefreshData> {
-  const response = await fetch(buildURL("/auth/refresh"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ refresh_token: refreshToken })
-  });
-  return parseResponse<RefreshData>(response);
 }
 
 function expireAuth(): void {

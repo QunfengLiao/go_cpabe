@@ -4,10 +4,11 @@ import { getAccessPolicy, listAccessPolicies, listAvailableAttributes } from "..
 import { useAuth } from "../auth/AuthContext";
 import { AccessTreePreviewCanvas } from "../components/access-policy/AccessTreePreviewCanvas";
 import { PolicyPreviewTabs } from "../components/access-policy/PolicyPreviewTabs";
+import { logicNodeTitle } from "../components/access-policy/tree/display";
 import { flowToTree, treeToFlow } from "../components/access-policy/tree/convert";
 import { generatePolicyExpr } from "../components/access-policy/tree/expression";
 import { applyAutoLayout } from "../components/access-policy/tree/layout";
-import { mockAttributes, mockTree } from "../components/access-policy/tree/mockData";
+import { mockTree } from "../components/access-policy/tree/mockData";
 import { validateTree } from "../components/access-policy/tree/validate";
 import { policyTree, type AccessPolicy, type PolicyAttribute, type PolicyTreeNode, type SimpleFlowEdge, type SimpleFlowNode } from "../components/access-policy/tree/types";
 
@@ -24,22 +25,35 @@ export function AccessPolicyBuilderPage() {
   const [updatedAt, setUpdatedAt] = useState("");
   const [nodes, setNodes] = useState<SimpleFlowNode[]>(() => applyAutoLayout(initial.nodes, initial.edges));
   const [edges, setEdges] = useState<SimpleFlowEdge[]>(() => initial.edges);
-  const [attributes, setAttributes] = useState<PolicyAttribute[]>(mockAttributes);
+  const [attributes, setAttributes] = useState<PolicyAttribute[]>([]);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
     if (!auth.currentTenantId) return;
+    let cancelled = false;
+    setAttributes([]);
+    setMessage("");
     Promise.all([
       listAvailableAttributes(auth.currentTenantId),
       listAccessPolicies(auth.currentTenantId)
     ]).then(([nextAttributes, nextPolicies]) => {
-      if (nextAttributes.length > 0) setAttributes(nextAttributes);
+      if (cancelled) return;
+      setAttributes(nextAttributes);
       setPolicies(nextPolicies);
       const nextSelectedId = policyId ?? String(nextPolicies[0]?.id ?? "");
       setSelectedPolicyId(nextSelectedId);
       const selectedPolicy = nextPolicies.find((policy) => String(policy.id) === nextSelectedId);
       if (selectedPolicy) applyPolicyToPreview(selectedPolicy);
-    }).catch(() => setAttributes(mockAttributes));
+    }).catch(() => {
+      if (!cancelled) {
+        setAttributes([]);
+        setPolicies([]);
+        setMessage("属性字典或策略列表加载失败，请检查当前租户权限");
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [auth.currentTenantId]);
 
   useEffect(() => {
@@ -54,7 +68,7 @@ export function AccessPolicyBuilderPage() {
       applyPolicyToPreview(loadedPolicy);
       return;
     }
-    getAccessPolicy(auth.currentTenantId, selectedPolicyId).then(applyPolicyToPreview).catch(() => setMessage("策略详情加载失败，已展示示例访问树"));
+    getAccessPolicy(auth.currentTenantId, selectedPolicyId).then(applyPolicyToPreview).catch(() => setMessage("策略详情加载失败"));
   }, [auth.currentTenantId, policies, selectedPolicyId]);
 
   const conversion = useMemo(() => flowToTree(nodes, edges), [nodes, edges]);
@@ -146,7 +160,7 @@ export function AccessPolicyBuilderPage() {
         </article>
       </section>
 
-      <PolicyPreviewTabs expression={expression} tree={conversion.tree} errors={validationErrors} />
+      <PolicyPreviewTabs expression={expression} tree={conversion.tree} attributes={attributes} errors={validationErrors} />
     </div>
   );
 }
@@ -155,7 +169,7 @@ function summarizeTree(tree: PolicyTreeNode | null, errorCount: number, updatedA
   const stats = countTree(tree);
   return [
     { label: "策略类型", value: "CP-ABE 访问树" },
-    { label: "根节点类型", value: tree?.type ?? "未配置" },
+    { label: "根节点类型", value: tree?.type === "LEAF" ? "属性条件" : tree ? logicNodeTitle(tree.type) : "未配置" },
     { label: "逻辑节点数量", value: String(stats.logicCount) },
     { label: "属性条件数量", value: String(stats.attributeCount) },
     { label: "校验状态", value: errorCount > 0 ? `${errorCount} 个问题` : "校验通过" },

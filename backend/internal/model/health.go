@@ -17,6 +17,7 @@ type AppHealth struct {
 
 // DependencyHealth 描述 MySQL、Redis 等外部依赖的状态和脱敏错误信息。
 type DependencyHealth struct {
-	Status  string `json:"status"`
-	Message string `json:"message"`
+	Status  string         `json:"status"`
+	Message string         `json:"message"`
+	Metrics map[string]any `json:"metrics,omitempty"`
 }

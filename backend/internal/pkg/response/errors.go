@@ -73,6 +73,8 @@ var (
 	ErrTenantMemberDisabled = NewError("TENANT_MEMBER_DISABLED", "当前用户在该租户的成员关系已禁用", http.StatusForbidden)
 	// ErrTenantPermissionDenied 表示当前租户角色不足以执行目标操作。
 	ErrTenantPermissionDenied = NewError("TENANT_PERMISSION_DENIED", "当前租户角色无权执行该操作", http.StatusForbidden)
+	// ErrPermissionDenied 表示已登录用户缺少目标 permission code。
+	ErrPermissionDenied = NewError("PERMISSION_DENIED", "权限不足", http.StatusForbidden)
 	// ErrTenantCodeExists 表示租户编码已存在，不能作为新的唯一标识。
 	ErrTenantCodeExists = NewError("TENANT_CODE_EXISTS", "租户编码已存在", http.StatusConflict)
 	// ErrTenantCodeInvalid 表示租户编码不符合系统命名规则。
@@ -85,6 +87,26 @@ var (
 	ErrTenantAdminSelfRoleForbidden = NewError("TENANT_ADMIN_SELF_ROLE_FORBIDDEN", "不能修改自己的租户管理员角色", http.StatusForbidden)
 	// ErrPlatformPermissionDenied 表示当前用户没有平台级管理权限。
 	ErrPlatformPermissionDenied = NewError("PLATFORM_PERMISSION_DENIED", "当前用户不是平台管理员", http.StatusForbidden)
+	// ErrRoleNotFound 表示当前租户范围内找不到目标角色。
+	ErrRoleNotFound = NewError("ROLE_NOT_FOUND", "角色不存在", http.StatusNotFound)
+	// ErrRoleCodeExists 表示同一租户内角色编码已存在。
+	ErrRoleCodeExists = NewError("ROLE_CODE_EXISTS", "角色编码已存在", http.StatusConflict)
+	// ErrBuiltinRoleImmutable 表示系统内置角色不允许由租户修改。
+	ErrBuiltinRoleImmutable = NewError("BUILTIN_ROLE_IMMUTABLE", "系统内置角色不可修改", http.StatusBadRequest)
+	// ErrRoleDisabled 表示目标角色已禁用，不能继续分配。
+	ErrRoleDisabled = NewError("ROLE_DISABLED", "角色已禁用", http.StatusBadRequest)
+	// ErrInvalidRoleScope 表示角色作用域或分类不符合当前接口规则。
+	ErrInvalidRoleScope = NewError("INVALID_ROLE_SCOPE", "角色作用域非法", http.StatusBadRequest)
+	// ErrInvalidPermissionScope 表示权限作用域不允许绑定到当前角色。
+	ErrInvalidPermissionScope = NewError("INVALID_PERMISSION_SCOPE", "权限作用域非法", http.StatusBadRequest)
+	// ErrMemberNotFoundInTenant 表示目标用户不是当前租户有效成员。
+	ErrMemberNotFoundInTenant = NewError("MEMBER_NOT_FOUND_IN_TENANT", "成员不属于当前租户", http.StatusNotFound)
+	// ErrCannotAssignPlatformRole 表示租户成员接口不能分配平台角色。
+	ErrCannotAssignPlatformRole = NewError("CANNOT_ASSIGN_PLATFORM_ROLE", "不能分配平台角色", http.StatusBadRequest)
+	// ErrCannotRemoveLastTenantAdmin 表示操作会移除最后一个租户管理员。
+	ErrCannotRemoveLastTenantAdmin = NewError("CANNOT_REMOVE_LAST_TENANT_ADMIN", "不能移除最后一个租户管理员", http.StatusConflict)
+	// ErrCrossTenantAccessDenied 表示请求试图访问其他租户资源。
+	ErrCrossTenantAccessDenied = NewError("CROSS_TENANT_ACCESS_DENIED", "资源不存在", http.StatusNotFound)
 	// ErrPolicyAttributeCodeExists 表示访问策略属性编码已存在。
 	ErrPolicyAttributeCodeExists = NewError("POLICY_ATTRIBUTE_CODE_EXISTS", "属性编码已存在", http.StatusConflict)
 	// ErrPolicyAttributeInvalid 表示访问策略属性字段或可选值非法。
@@ -101,6 +123,28 @@ var (
 	ErrAccessPolicyAttributeDisabled = NewError("ACCESS_POLICY_ATTRIBUTE_DISABLED", "访问树引用了未开放属性", http.StatusBadRequest)
 	// ErrAccessPolicyExprMismatch 表示客户端表达式与后端访问树生成结果不一致。
 	ErrAccessPolicyExprMismatch = NewError("ACCESS_POLICY_EXPR_MISMATCH", "策略表达式与访问树不一致", http.StatusBadRequest)
+	// ErrOrgUnitInvalid 表示组织单元不存在、跨租户或字段非法。
+	ErrOrgUnitInvalid = NewError("ORG_UNIT_INVALID", "组织单元非法", http.StatusBadRequest)
+	// ErrOrgUnitDisabled 表示停用部门不能继续新增成员或作为新策略选择来源。
+	ErrOrgUnitDisabled = NewError("ORG_UNIT_DISABLED", "部门已停用", http.StatusConflict)
+	// ErrOrgUnitHasChildren 表示部门存在子部门，不能直接删除或停用父部门。
+	ErrOrgUnitHasChildren = NewError("ORG_UNIT_HAS_CHILDREN", "部门存在子部门", http.StatusConflict)
+	// ErrOrgUnitHasMembers 表示部门存在有效成员关系，不能直接删除。
+	ErrOrgUnitHasMembers = NewError("ORG_UNIT_HAS_MEMBERS", "部门存在有效成员", http.StatusConflict)
+	// ErrOrgUnitMoveCycle 表示部门移动会形成自身或后代循环。
+	ErrOrgUnitMoveCycle = NewError("ORG_UNIT_MOVE_CYCLE", "不能移动到自身或下级部门", http.StatusConflict)
+	// ErrOrgMemberInvalid 表示部门成员关系不存在、跨租户或用户不是租户成员。
+	ErrOrgMemberInvalid = NewError("ORG_MEMBER_INVALID", "部门成员非法", http.StatusBadRequest)
+	// ErrOrgMemberPrimaryRequired 表示多部门关系下缺少唯一主部门。
+	ErrOrgMemberPrimaryRequired = NewError("ORG_MEMBER_PRIMARY_REQUIRED", "必须指定唯一主部门", http.StatusConflict)
+	// ErrOrgRoleInvalid 表示部门职务不是负责人或副负责人白名单。
+	ErrOrgRoleInvalid = NewError("ORG_ROLE_INVALID", "部门职务非法", http.StatusBadRequest)
+	// ErrOrgLeaderExists 表示同一部门已经存在有效负责人。
+	ErrOrgLeaderExists = NewError("ORG_LEADER_EXISTS", "部门负责人已存在", http.StatusConflict)
+	// ErrTenantAttributeInvalid 表示租户属性定义或属性值非法。
+	ErrTenantAttributeInvalid = NewError("TENANT_ATTRIBUTE_INVALID", "租户属性非法", http.StatusBadRequest)
+	// ErrUserAttributeSyncFailed 表示用户属性同步失败，不能使用部分同步结果。
+	ErrUserAttributeSyncFailed = NewError("USER_ATTRIBUTE_SYNC_FAILED", "用户属性同步失败", http.StatusInternalServerError)
 	// ErrInternal 表示服务端内部异常，响应中不暴露底层错误细节。
 	ErrInternal = NewError("INTERNAL_ERROR", "内部错误", http.StatusInternalServerError)
 )

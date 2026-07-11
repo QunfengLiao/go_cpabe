@@ -23,6 +23,7 @@ import {
   type SimpleFlowNode,
   type ValidationError
 } from "./tree/types";
+import { withDisplayData } from "./tree/display";
 import { normalizeNodePositions } from "./tree/layout";
 
 const previewNodeTypes = { andNode: AndNode, orNode: OrNode, attributeNode: AttributeNode };
@@ -56,12 +57,12 @@ export function AccessTreePreviewCanvas({
       height: node.data.nodeType === "LEAF" ? 78 : 82,
       sourcePosition: Position.Bottom,
       targetPosition: Position.Top,
-      data: {
+      data: withDisplayData({
         ...node.data,
         attributeName: attr ? attributeName(attr) : undefined,
         attributeType: attr ? attributeType(attr) : undefined,
         error: errorByNode.get(node.id)
-      }
+      }, attr)
     };
   }) as Node<FlowAccessNodeData>[], [attrMap, errorByNode, normalizedNodes]);
 

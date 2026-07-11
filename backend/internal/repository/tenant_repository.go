@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
 	"go-cpabe/backend/internal/domain"
 
@@ -18,6 +19,20 @@ var (
 	ErrRoleNotFound = errors.New("role not found")
 	// ErrTenantMemberMissing 表示用户不是指定租户成员。
 	ErrTenantMemberMissing = errors.New("tenant member missing")
+	// ErrRoleCodeExists 表示同一租户内角色编码已经存在。
+	ErrRoleCodeExists = errors.New("role code exists")
+	// ErrPermissionNotFound 表示权限编码不存在或不可用于当前作用域。
+	ErrPermissionNotFound = errors.New("permission not found")
+	// ErrBuiltinRoleImmutable 表示调用方试图修改系统内置角色。
+	ErrBuiltinRoleImmutable = errors.New("builtin role immutable")
+	// ErrRoleDisabled 表示目标角色已禁用，不能继续分配。
+	ErrRoleDisabled = errors.New("role disabled")
+	// ErrInvalidRoleScope 表示角色作用域不符合当前接口规则。
+	ErrInvalidRoleScope = errors.New("invalid role scope")
+	// ErrCannotAssignPlatformRole 表示租户成员接口拒绝分配平台角色。
+	ErrCannotAssignPlatformRole = errors.New("cannot assign platform role")
+	// ErrCannotRemoveLastTenantAdmin 表示操作会导致租户失去最后一个有效管理员。
+	ErrCannotRemoveLastTenantAdmin = errors.New("cannot remove last tenant admin")
 )
 
 // TenantRepository 定义租户、成员和角色授权的持久化能力。
@@ -28,8 +43,10 @@ type TenantRepository interface {
 	UpdateTenantStatus(ctx context.Context, tenantID uint64, status domain.TenantStatus) (*domain.Tenant, error)
 	ListTenants(ctx context.Context) ([]domain.Tenant, error)
 	EnsureTenant(ctx context.Context, tenant *domain.Tenant) (*domain.Tenant, error)
+	EnsureTenants(ctx context.Context, tenants []domain.Tenant) error
 
 	EnsureTenantUser(ctx context.Context, tenantID uint64, userID uint64, status domain.TenantUserStatus) error
+	EnsureTenantUsers(ctx context.Context, members []domain.TenantUser) error
 	RemoveTenantUser(ctx context.Context, tenantID uint64, userID uint64) error
 	FindTenantUser(ctx context.Context, tenantID uint64, userID uint64) (*domain.TenantUser, error)
 	ListTenantsByUser(ctx context.Context, userID uint64) ([]domain.Tenant, error)
@@ -38,12 +55,15 @@ type TenantRepository interface {
 	GetTenantUsageStats(ctx context.Context, tenantID uint64) (TenantUsageStats, error)
 
 	EnsureRole(ctx context.Context, role *domain.Role) (*domain.Role, error)
+	EnsureRoles(ctx context.Context, roles []domain.Role) error
 	FindRoleByCode(ctx context.Context, code domain.RoleCode) (*domain.Role, error)
 	EnsureUserRole(ctx context.Context, tenantID *uint64, userID uint64, roleCode domain.RoleCode) error
+	EnsureUserRoleAssignments(ctx context.Context, assignments []domain.UserRoleAssignment) error
 	RemoveUserRole(ctx context.Context, tenantID *uint64, userID uint64, roleCode domain.RoleCode) error
 	ReplaceTenantBusinessRole(ctx context.Context, tenantID uint64, userID uint64, roleCode domain.RoleCode) error
 	ListRoleCodesByUserTenant(ctx context.Context, userID uint64, tenantID uint64) ([]domain.RoleCode, error)
 	ListPlatformRoleCodes(ctx context.Context, userID uint64) ([]domain.RoleCode, error)
+	ListUserIDsByPlatformRole(ctx context.Context, roleCode domain.RoleCode) (map[uint64]struct{}, error)
 	HasRole(ctx context.Context, userID uint64, tenantID *uint64, roleCode domain.RoleCode) (bool, error)
 	CountTenantAdmins(ctx context.Context, tenantID uint64) (int64, error)
 }
@@ -51,10 +71,13 @@ type TenantRepository interface {
 // TenantMemberRecord 是租户成员列表查询的聚合结果，包含用户展示信息和租户内角色。
 type TenantMemberRecord struct {
 	UserID       uint64
+	Username     string
 	Email        string
 	Nickname     string
+	Phone        string
 	MemberStatus domain.TenantUserStatus
 	Roles        []domain.RoleCode
+	JoinedAt     time.Time
 }
 
 // TenantUsageStats 是平台租户列表和 dashboard 所需的轻量统计结果。
@@ -137,6 +160,14 @@ func (r *GormTenantRepository) EnsureTenant(ctx context.Context, tenant *domain.
 	return tenant, nil
 }
 
+// EnsureTenants 批量写入缺失租户；已存在租户保持原值，避免 seed 刷新 updated_at 或覆盖人工维护字段。
+func (r *GormTenantRepository) EnsureTenants(ctx context.Context, tenants []domain.Tenant) error {
+	if len(tenants) == 0 {
+		return nil
+	}
+	return r.db.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "code"}}, DoNothing: true}).Create(&tenants).Error
+}
+
 // EnsureTenantUser 幂等写入租户成员关系，重复加入时恢复状态和软删除标记。
 func (r *GormTenantRepository) EnsureTenantUser(ctx context.Context, tenantID uint64, userID uint64, status domain.TenantUserStatus) error {
 	member := domain.TenantUser{TenantID: tenantID, UserID: userID, Status: status}
@@ -145,6 +176,17 @@ func (r *GormTenantRepository) EnsureTenantUser(ctx context.Context, tenantID ui
 		// 重新加入租户时同步恢复状态和 deleted_at，避免软删除记录挡住幂等写入。
 		DoUpdates: clause.AssignmentColumns([]string{"status", "updated_at", "deleted_at"}),
 	}).Create(&member).Error
+}
+
+// EnsureTenantUsers 批量写入缺失租户成员；seed 不更新已有记录，避免每次启动刷新 updated_at。
+func (r *GormTenantRepository) EnsureTenantUsers(ctx context.Context, members []domain.TenantUser) error {
+	if len(members) == 0 {
+		return nil
+	}
+	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "tenant_id"}, {Name: "user_id"}},
+		DoNothing: true,
+	}).CreateInBatches(members, 200).Error
 }
 
 // RemoveTenantUser 将成员关系置为 disabled，保留历史记录供审计和后续恢复。
@@ -182,7 +224,7 @@ func (r *GormTenantRepository) ListTenantsByUser(ctx context.Context, userID uin
 func (r *GormTenantRepository) ListTenantUsers(ctx context.Context, tenantID uint64) ([]TenantMemberRecord, error) {
 	var members []domain.TenantUser
 	if err := r.db.WithContext(ctx).
-		Select("id, tenant_id, user_id, status").
+		Select("id, tenant_id, user_id, status, created_at").
 		Where("tenant_id = ?", tenantID).
 		Order("id ASC").
 		Find(&members).Error; err != nil {
@@ -198,7 +240,7 @@ func (r *GormTenantRepository) ListTenantUsers(ctx context.Context, tenantID uin
 
 	var users []domain.User
 	if err := r.db.WithContext(ctx).
-		Select("id, email, nickname").
+		Select("id, username, email, nickname, phone").
 		Where("id IN ?", userIDs).
 		Find(&users).Error; err != nil {
 		return nil, err
@@ -222,10 +264,13 @@ func (r *GormTenantRepository) ListTenantUsers(ctx context.Context, tenantID uin
 		}
 		records = append(records, TenantMemberRecord{
 			UserID:       user.ID,
+			Username:     user.Username,
 			Email:        user.Email,
 			Nickname:     user.Nickname,
+			Phone:        user.Phone,
 			MemberStatus: member.Status,
 			Roles:        rolesByUserID[member.UserID],
+			JoinedAt:     member.CreatedAt,
 		})
 	}
 	return records, nil
@@ -254,7 +299,7 @@ func (r *GormTenantRepository) ListTenantUsageStats(ctx context.Context) ([]Tena
 			domain.TenantUserStatusActive,
 			tenantAdminRoleID,
 		).
-		Joins("LEFT JOIN user_roles ON user_roles.tenant_id = tenant_users.tenant_id AND user_roles.user_id = tenant_users.user_id AND user_roles.role_id = ?", tenantAdminRoleID).
+		Joins("LEFT JOIN user_roles ON user_roles.tenant_id = tenant_users.tenant_id AND user_roles.user_id = tenant_users.user_id AND user_roles.role_id = ? AND user_roles.status = ?", tenantAdminRoleID, domain.UserRoleStatusActive).
 		Where("tenant_users.deleted_at IS NULL").
 		Group("tenant_users.tenant_id").
 		Scan(&rows).Error; err != nil {
@@ -291,7 +336,7 @@ func (r *GormTenantRepository) GetTenantUsageStats(ctx context.Context, tenantID
 			domain.TenantUserStatusActive,
 			tenantAdminRoleID,
 		).
-		Joins("LEFT JOIN user_roles ON user_roles.tenant_id = tenant_users.tenant_id AND user_roles.user_id = tenant_users.user_id AND user_roles.role_id = ?", tenantAdminRoleID).
+		Joins("LEFT JOIN user_roles ON user_roles.tenant_id = tenant_users.tenant_id AND user_roles.user_id = tenant_users.user_id AND user_roles.role_id = ? AND user_roles.status = ?", tenantAdminRoleID, domain.UserRoleStatusActive).
 		Where("tenant_users.tenant_id = ? AND tenant_users.deleted_at IS NULL", tenantID).
 		Group("tenant_users.tenant_id").
 		Scan(&row).Error
@@ -321,10 +366,20 @@ func (r *GormTenantRepository) EnsureRole(ctx context.Context, role *domain.Role
 	return role, nil
 }
 
-// FindRoleByCode 按角色编码查找角色定义，找不到时返回 ErrRoleNotFound。
+// EnsureRoles 批量写入缺失基础角色；已存在角色不更新，避免 seed 造成 updated_at 抖动。
+func (r *GormTenantRepository) EnsureRoles(ctx context.Context, roles []domain.Role) error {
+	if len(roles) == 0 {
+		return nil
+	}
+	// MySQL ON DUPLICATE DO NOTHING 命中已有记录时不会把真实 ID 回填到结构体；
+	// 因此这里不写入 roleID 缓存，避免把 0 当成有效角色 ID 影响后续授权。
+	return r.db.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "tenant_id"}, {Name: "code"}}, DoNothing: true}).Create(&roles).Error
+}
+
+// FindRoleByCode 按系统内置角色编码查找角色定义，找不到时返回 ErrRoleNotFound。
 func (r *GormTenantRepository) FindRoleByCode(ctx context.Context, code domain.RoleCode) (*domain.Role, error) {
 	var role domain.Role
-	err := r.db.WithContext(ctx).Where("code = ?", code).First(&role).Error
+	err := r.db.WithContext(ctx).Where("tenant_id = ? AND code = ?", 0, code).First(&role).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, ErrRoleNotFound
 	}
@@ -341,7 +396,7 @@ func (r *GormTenantRepository) EnsureUserRole(ctx context.Context, tenantID *uin
 		return err
 	}
 	if tenantID == nil {
-		// MySQL 唯一索引不会把 NULL 当作相等值；平台级角色必须先查后写，避免重复授权记录。
+		// 新 RBAC 使用 tenant_id=0 表示平台授权；查询仍兼容 NULL，避免迁移前后平台管理员失权。
 		hasRole, err := r.HasRole(ctx, userID, nil, roleCode)
 		if err != nil {
 			return err
@@ -349,15 +404,43 @@ func (r *GormTenantRepository) EnsureUserRole(ctx context.Context, tenantID *uin
 		if hasRole {
 			return nil
 		}
+		platformTenantID := uint64(0)
+		tenantID = &platformTenantID
 	}
-	assignment := domain.UserRoleAssignment{TenantID: tenantID, UserID: userID, RoleID: roleID}
+	assignment := domain.UserRoleAssignment{TenantID: tenantID, UserID: userID, RoleID: roleID, AssignmentSource: domain.AssignmentSourceSystem, Status: domain.UserRoleStatusActive}
 	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "tenant_id"}, {Name: "user_id"}, {Name: "role_id"}},
-		DoNothing: true,
+		DoUpdates: clause.Assignments(map[string]any{"status": domain.UserRoleStatusActive, "revoked_at": nil, "updated_at": gorm.Expr("CURRENT_TIMESTAMP(3)")}),
 	}).Create(&assignment).Error
 }
 
-// RemoveUserRole 撤销用户角色授权，tenantID 为 nil 时只撤销平台级角色。
+// EnsureUserRoleAssignments 批量写入缺失角色授权；已有授权不更新，专供 seed 降低 SQL 往返次数。
+func (r *GormTenantRepository) EnsureUserRoleAssignments(ctx context.Context, assignments []domain.UserRoleAssignment) error {
+	if len(assignments) == 0 {
+		return nil
+	}
+	normalized := make([]domain.UserRoleAssignment, 0, len(assignments))
+	for i := range assignments {
+		assignment := assignments[i]
+		if assignment.TenantID == nil {
+			platformTenantID := uint64(0)
+			assignment.TenantID = &platformTenantID
+		}
+		if assignment.AssignmentSource == "" {
+			assignment.AssignmentSource = domain.AssignmentSourceSystem
+		}
+		if assignment.Status == "" {
+			assignment.Status = domain.UserRoleStatusActive
+		}
+		normalized = append(normalized, assignment)
+	}
+	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "tenant_id"}, {Name: "user_id"}, {Name: "role_id"}},
+		DoNothing: true,
+	}).CreateInBatches(normalized, 200).Error
+}
+
+// RemoveUserRole 撤销用户角色授权，tenantID 为 nil 时兼容撤销 NULL 和 0 两种平台级授权。
 func (r *GormTenantRepository) RemoveUserRole(ctx context.Context, tenantID *uint64, userID uint64, roleCode domain.RoleCode) error {
 	role, err := r.FindRoleByCode(ctx, roleCode)
 	if err != nil {
@@ -367,45 +450,35 @@ func (r *GormTenantRepository) RemoveUserRole(ctx context.Context, tenantID *uin
 	query := r.db.WithContext(ctx).Unscoped().
 		Where("user_id = ? AND role_id = ?", userID, role.ID)
 	if tenantID == nil {
-		query = query.Where("tenant_id IS NULL")
+		query = query.Where("tenant_id IS NULL OR tenant_id = 0")
 	} else {
 		query = query.Where("tenant_id = ?", *tenantID)
 	}
 	return query.Delete(&domain.UserRoleAssignment{}).Error
 }
 
-// ReplaceTenantBusinessRole 在事务中替换用户的租户内普通业务角色，保证 DO/DU 互斥且失败时回滚旧角色。
+// ReplaceTenantBusinessRole 是旧单角色接口的兼容包装，只追加或恢复指定能力角色，不再删除 DO/DU 中的另一项。
 func (r *GormTenantRepository) ReplaceTenantBusinessRole(ctx context.Context, tenantID uint64, userID uint64, roleCode domain.RoleCode) error {
 	roleID, err := r.roleIDByCode(ctx, roleCode)
 	if err != nil {
 		return err
 	}
-	businessRoleIDs := make([]uint64, 0, 2)
-	for _, code := range []domain.RoleCode{domain.RoleDO, domain.RoleDU} {
-		id, err := r.roleIDByCode(ctx, code)
-		if errors.Is(err, ErrRoleNotFound) {
-			continue
-		}
-		if err != nil {
-			return err
-		}
-		businessRoleIDs = append(businessRoleIDs, id)
+	assignment := domain.UserRoleAssignment{
+		TenantID:         &tenantID,
+		UserID:           userID,
+		RoleID:           roleID,
+		AssignmentSource: domain.AssignmentSourceManual,
+		Status:           domain.UserRoleStatusActive,
 	}
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if len(businessRoleIDs) > 0 {
-			// 普通业务角色本期必须单选；先删除旧 DO/DU 再写入新角色，整个过程放在事务中避免半完成状态。
-			if err := tx.Unscoped().
-				Where("tenant_id = ? AND user_id = ? AND role_id IN ?", tenantID, userID, businessRoleIDs).
-				Delete(&domain.UserRoleAssignment{}).Error; err != nil {
-				return err
-			}
-		}
-		assignment := domain.UserRoleAssignment{TenantID: &tenantID, UserID: userID, RoleID: roleID}
-		return tx.Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "tenant_id"}, {Name: "user_id"}, {Name: "role_id"}},
-			DoNothing: true,
-		}).Create(&assignment).Error
-	})
+	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "tenant_id"}, {Name: "user_id"}, {Name: "role_id"}},
+		DoUpdates: clause.Assignments(map[string]any{
+			"assignment_source": domain.AssignmentSourceManual,
+			"status":            domain.UserRoleStatusActive,
+			"revoked_at":        nil,
+			"updated_at":        gorm.Expr("CURRENT_TIMESTAMP(3)"),
+		}),
+	}).Create(&assignment).Error
 }
 
 // ListRoleCodesByUserTenant 返回用户在指定租户内拥有的角色编码列表。
@@ -415,6 +488,8 @@ func (r *GormTenantRepository) ListRoleCodesByUserTenant(ctx context.Context, us
 		Table("roles").
 		Joins("JOIN user_roles ON user_roles.role_id = roles.id").
 		Where("user_roles.user_id = ? AND user_roles.tenant_id = ?", userID, tenantID).
+		Where("user_roles.status = ? AND (user_roles.expires_at IS NULL OR user_roles.expires_at > CURRENT_TIMESTAMP(3))", domain.UserRoleStatusActive).
+		Where("roles.status = ? AND roles.scope_type = ?", domain.RoleStatusActive, domain.RoleScopeTypeTenant).
 		Order("roles.id ASC").
 		Pluck("roles.code", &roles).Error
 	if err != nil {
@@ -429,13 +504,35 @@ func (r *GormTenantRepository) ListPlatformRoleCodes(ctx context.Context, userID
 	err := r.db.WithContext(ctx).
 		Table("roles").
 		Joins("JOIN user_roles ON user_roles.role_id = roles.id").
-		Where("user_roles.user_id = ? AND user_roles.tenant_id IS NULL", userID).
+		Where("user_roles.user_id = ? AND (user_roles.tenant_id IS NULL OR user_roles.tenant_id = 0) AND user_roles.status = ? AND roles.status = ?", userID, domain.UserRoleStatusActive, domain.RoleStatusActive).
 		Order("roles.id ASC").
 		Pluck("roles.code", &roles).Error
 	if err != nil {
 		return nil, err
 	}
 	return roles, nil
+}
+
+// ListUserIDsByPlatformRole 批量返回拥有平台角色的用户 ID，供 seed 跳过平台管理员默认租户迁移。
+func (r *GormTenantRepository) ListUserIDsByPlatformRole(ctx context.Context, roleCode domain.RoleCode) (map[uint64]struct{}, error) {
+	roleID, err := r.roleIDByCode(ctx, roleCode)
+	if errors.Is(err, ErrRoleNotFound) {
+		return map[uint64]struct{}{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var userIDs []uint64
+	if err := r.db.WithContext(ctx).Table("user_roles").
+		Where("(tenant_id IS NULL OR tenant_id = 0) AND role_id = ?", roleID).
+		Pluck("user_id", &userIDs).Error; err != nil {
+		return nil, err
+	}
+	result := make(map[uint64]struct{}, len(userIDs))
+	for _, userID := range userIDs {
+		result[userID] = struct{}{}
+	}
+	return result, nil
 }
 
 // HasRole 判断用户是否拥有指定角色；tenantID 为 nil 时只检查平台级授权。
@@ -450,8 +547,8 @@ func (r *GormTenantRepository) HasRole(ctx context.Context, userID uint64, tenan
 	query := r.db.WithContext(ctx).Table("user_roles").
 		Where("user_roles.user_id = ? AND user_roles.role_id = ?", userID, roleID)
 	if tenantID == nil {
-		// nil tenantID 表示平台级角色，只允许匹配 tenant_id IS NULL，不能把租户角色提升为平台权限。
-		query = query.Where("user_roles.tenant_id IS NULL")
+		// nil tenantID 表示平台级角色，迁移期兼容旧 NULL 和新 0，不把租户角色提升为平台权限。
+		query = query.Where("user_roles.tenant_id IS NULL OR user_roles.tenant_id = 0")
 	} else {
 		query = query.Where("user_roles.tenant_id = ?", *tenantID)
 	}
@@ -476,7 +573,7 @@ func (r *GormTenantRepository) CountTenantAdmins(ctx context.Context, tenantID u
 	// 只统计仍为活跃成员的租户管理员，避免已移除成员继续阻止“最后管理员”保护逻辑。
 	err = r.db.WithContext(ctx).Table("user_roles").
 		Joins("JOIN tenant_users ON tenant_users.tenant_id = user_roles.tenant_id AND tenant_users.user_id = user_roles.user_id").
-		Where("user_roles.tenant_id = ? AND user_roles.role_id = ? AND tenant_users.status = ?", tenantID, roleID, domain.TenantUserStatusActive).
+		Where("user_roles.tenant_id = ? AND user_roles.role_id = ? AND user_roles.status = ? AND tenant_users.status = ?", tenantID, roleID, domain.UserRoleStatusActive, domain.TenantUserStatusActive).
 		Distinct("user_roles.user_id").
 		Count(&count).Error
 	return count, err
@@ -493,6 +590,7 @@ func (r *GormTenantRepository) listRoleCodesByTenantUsers(ctx context.Context, t
 		Select("user_roles.user_id AS user_id, roles.code AS code").
 		Joins("JOIN roles ON roles.id = user_roles.role_id").
 		Where("user_roles.tenant_id = ? AND user_roles.user_id IN ?", tenantID, userIDs).
+		Where("user_roles.status = ? AND roles.status = ?", domain.UserRoleStatusActive, domain.RoleStatusActive).
 		Order("user_roles.user_id ASC, roles.id ASC").
 		Scan(&rows).Error; err != nil {
 		return nil, err
@@ -516,7 +614,7 @@ func (r *GormTenantRepository) roleIDByCode(ctx context.Context, code domain.Rol
 		return id, nil
 	}
 	var role domain.Role
-	err := r.db.WithContext(ctx).Model(&domain.Role{}).Select("id, code").Where("code = ?", code).First(&role).Error
+	err := r.db.WithContext(ctx).Model(&domain.Role{}).Select("id, code").Where("tenant_id = ? AND code = ?", 0, code).First(&role).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return 0, ErrRoleNotFound
 	}

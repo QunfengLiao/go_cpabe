@@ -38,3 +38,29 @@ func TestRedisTokenStoreRotate(t *testing.T) {
 		t.Fatalf("expected ttl, got %v", ttl)
 	}
 }
+
+// TestRedisTokenStoreReplaceDeviceSession 验证同一用户同一设备重新登录会替换旧 Refresh Session，并保持索引 TTL。
+func TestRedisTokenStoreReplaceDeviceSession(t *testing.T) {
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	store := NewRedisTokenStore(client, time.Hour)
+	ctx := context.Background()
+
+	first := RefreshSession{UserID: 7, DeviceID: "electron-device", SessionID: "s1", RefreshTokenHash: "old", ExpiresAt: time.Now().Add(time.Hour)}
+	if err := store.ReplaceDeviceSession(ctx, 7, "electron-device", "old-token", first, time.Hour); err != nil {
+		t.Fatalf("replace first: %v", err)
+	}
+	second := RefreshSession{UserID: 7, DeviceID: "electron-device", SessionID: "s2", RefreshTokenHash: "new", ExpiresAt: time.Now().Add(time.Hour)}
+	if err := store.ReplaceDeviceSession(ctx, 7, "electron-device", "new-token", second, time.Hour); err != nil {
+		t.Fatalf("replace second: %v", err)
+	}
+	if _, err := store.Get(ctx, "old-token"); err != ErrRefreshSessionNotFound {
+		t.Fatalf("expected old session removed, got %v", err)
+	}
+	if got := server.Get(UserDeviceSessionKey(7, "electron-device")); got != "new-token" {
+		t.Fatalf("unexpected device index: %q", got)
+	}
+	if ttl := server.TTL(UserDeviceSessionKey(7, "electron-device")); ttl <= 0 {
+		t.Fatalf("expected index ttl, got %v", ttl)
+	}
+}

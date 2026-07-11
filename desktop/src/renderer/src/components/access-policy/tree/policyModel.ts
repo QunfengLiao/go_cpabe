@@ -1,9 +1,10 @@
 import { MarkerType, Position, type Edge, type Node } from "@xyflow/react";
 import type { FlowAccessNodeData, PolicyAttribute, PolicyOperator, PolicyTreeNode, SimpleFlowEdge, SimpleFlowNode, ValidationError } from "./types";
-import { attributeCode, attributeType, attributeValues } from "./types";
+import { attributeCode, attributeOperators, attributeType, attributeValues, findAttributeValue } from "./types";
+import { firstAttributeValue, operatorLabel, resolveAttributeValueLabel } from "./display";
 
 export type PolicyNodeType = "and" | "or" | "attribute";
-export type PolicyConditionOperator = "=" | "!=" | ">" | ">=" | "<" | "<=";
+export type PolicyConditionOperator = PolicyOperator;
 
 export interface EditablePolicyTreeNode {
   id: string;
@@ -14,6 +15,10 @@ export interface EditablePolicyTreeNode {
     field: string;
     operator: PolicyConditionOperator;
     value: string | number;
+    valueId?: number;
+    valueCode?: string;
+    label?: string;
+    path?: string;
   };
   position?: {
     x: number;
@@ -27,7 +32,7 @@ const LOGIC_NODE_WIDTH = 210;
 const ATTRIBUTE_NODE_WIDTH = 240;
 
 export function createLogicPolicyNode(type: "and" | "or", id: string): EditablePolicyTreeNode {
-  return { id, type, label: type === "and" ? "AND" : "OR", children: [] };
+  return { id, type, label: type === "and" ? "全部满足" : "任一满足", children: [] };
 }
 
 export function createAttributePolicyNode(id: string, field: string, value: string | number = ""): EditablePolicyTreeNode {
@@ -68,6 +73,7 @@ function visitPolicyTree(node: EditablePolicyTreeNode, nodes: SimpleFlowNode[], 
   const flowType = node.type === "and" ? "andNode" : node.type === "or" ? "orNode" : "attributeNode";
   const condition = node.condition;
   const attr = condition?.field ? attrByCode.get(condition.field) : undefined;
+  const valueLabel = node.type === "attribute" ? resolveAttributeValueLabel(attr, condition?.value, condition?.label) : undefined;
   nodes.push({
     id: node.id,
     type: flowType,
@@ -80,7 +86,13 @@ function visitPolicyTree(node: EditablePolicyTreeNode, nodes: SimpleFlowNode[], 
         attributeType: attr ? attributeType(attr) : "attr",
         operator: (condition?.operator ?? "=") as PolicyOperator,
         value: condition?.value ?? "",
-        label: node.label,
+        valueId: condition?.valueId,
+        valueCode: condition?.valueCode,
+        path: condition?.path,
+        label: condition?.label,
+        displayValue: valueLabel,
+        valueLabel,
+        operatorLabel: operatorLabel((condition?.operator ?? "=") as PolicyOperator),
         error: errorByNode.get(node.id)
       }
       : {
@@ -177,12 +189,23 @@ function validateEditableNode(node: EditablePolicyTreeNode, attributes: Map<stri
   }
   if (!condition.operator) {
     errors.push({ nodeId: node.id, path, message: "属性条件需要选择操作符" });
+  } else if (!attributeOperators(attr).includes(condition.operator)) {
+    errors.push({ nodeId: node.id, path, message: "操作符不适用于当前属性类型" });
   }
   if (condition.value === "" || condition.value === null || condition.value === undefined) {
     errors.push({ nodeId: node.id, path, message: "属性值不能为空" });
   }
   if (attributeType(attr) === "enum" && !attributeValues(attr).includes(String(condition.value))) {
     errors.push({ nodeId: node.id, path, message: "属性值不在可选值范围内" });
+  }
+  if (attributeType(attr) === "tree") {
+    const matched = findAttributeValue(attr, String(condition.value));
+    if (!matched) {
+      errors.push({ nodeId: node.id, path, message: "部门值不在当前租户组织树中" });
+    }
+    if (condition.valueId && matched?.valueId && condition.valueId !== matched.valueId) {
+      errors.push({ nodeId: node.id, path, message: "部门值标识与当前租户组织树不一致" });
+    }
   }
   if (attributeType(attr) === "number" && Number.isNaN(Number(condition.value))) {
     errors.push({ nodeId: node.id, path, message: "属性值必须是数字" });
@@ -231,11 +254,16 @@ export function layoutPolicyTree(policyTree: EditablePolicyTreeNode | null): Edi
 export function editableToBackendTree(policyTree: EditablePolicyTreeNode | null): PolicyTreeNode | null {
   if (!policyTree) return null;
   if (policyTree.type === "attribute") {
+    const value = policyTree.condition?.value ?? "";
     return {
       type: "LEAF",
       attribute: policyTree.condition?.field ?? "",
-      operator: policyTree.condition?.operator === "!=" ? "!=" : "=",
-      value: policyTree.condition?.value ?? ""
+      operator: policyTree.condition?.operator ?? "=",
+      value,
+      valueId: policyTree.condition?.valueId,
+      valueCode: policyTree.condition?.valueCode ?? (value === "" || value === null || value === undefined ? undefined : String(value)),
+      label: policyTree.condition?.label,
+      path: policyTree.condition?.path
     };
   }
   return { type: policyTree.type === "or" ? "OR" : "AND", children: (policyTree.children ?? []).map((child) => editableToBackendTree(child)).filter(Boolean) as PolicyTreeNode[] };
@@ -244,14 +272,54 @@ export function editableToBackendTree(policyTree: EditablePolicyTreeNode | null)
 export function backendToEditableTree(tree: PolicyTreeNode | null, prefix = "root"): EditablePolicyTreeNode | null {
   if (!tree) return null;
   if (tree.type === "LEAF") {
-    return createAttributePolicyNode(prefix, tree.attribute, tree.value);
+    const node = createAttributePolicyNode(prefix, tree.attribute, tree.value);
+    return {
+      ...node,
+      condition: {
+        field: tree.attribute,
+        operator: tree.operator,
+        value: tree.value,
+        valueId: tree.valueId,
+        valueCode: tree.valueCode,
+        label: tree.label,
+        path: tree.path
+      }
+    };
   }
   return {
     id: prefix,
     type: tree.type === "OR" ? "or" : "and",
-    label: tree.type,
+    label: tree.type === "OR" ? "任一满足" : "全部满足",
     children: tree.children.map((child, index) => backendToEditableTree(child, `${prefix}-${index}`)).filter(Boolean) as EditablePolicyTreeNode[]
   };
+}
+
+export type EditablePolicyCondition = NonNullable<EditablePolicyTreeNode["condition"]>;
+
+export function hydrateEditableTreeLabels(policyTree: EditablePolicyTreeNode | null, attributes: PolicyAttribute[]): EditablePolicyTreeNode | null {
+  if (!policyTree) return null;
+  const attrByCode = new Map(attributes.map((attr) => [attributeCode(attr), attr]));
+  return mapPolicyTree(policyTree, (node) => {
+    if (node.type !== "attribute") return node;
+    const field = node.condition?.field ?? "";
+    const attr = field ? attrByCode.get(field) : undefined;
+    const value = node.condition?.value ?? "";
+    const matched = attr && value !== "" ? findAttributeValue(attr, String(value)) : undefined;
+    const label = node.condition?.label ?? matched?.label;
+    return {
+      ...node,
+      label: label ?? node.label,
+      condition: {
+        field,
+        operator: node.condition?.operator ?? "=",
+        value,
+        valueId: node.condition?.valueId ?? matched?.valueId,
+        valueCode: node.condition?.valueCode ?? matched?.valueCode ?? (value === "" ? undefined : String(value)),
+        label,
+        path: node.condition?.path ?? matched?.path
+      }
+    };
+  });
 }
 
 export function generateEditablePolicyExpression(policyTree: EditablePolicyTreeNode | null): string {
@@ -263,12 +331,28 @@ export function generateEditablePolicyExpression(policyTree: EditablePolicyTreeN
 function generateBackendExpression(tree: PolicyTreeNode): string {
   if (tree.type === "LEAF") {
     const value = String(tree.value ?? "");
-    return tree.operator === "!=" ? `${tree.attribute}!=${quoteIfNeeded(value)}` : `${tree.attribute}:${quoteIfNeeded(value)}`;
+    if (tree.operator === "belongs_to") return `${tree.attribute} belongs_to ${quoteIfNeeded(value)}`;
+    if (tree.operator === ">=" || tree.operator === "<=") return `${tree.attribute} ${tree.operator} ${quoteIfNeeded(value)}`;
+    if (tree.operator === "!=") return `${tree.attribute}!=${quoteIfNeeded(value)}`;
+    return `${tree.attribute}:${quoteIfNeeded(value)}`;
   }
   return tree.children.map((child) => {
     const expr = generateBackendExpression(child);
     return child.type === "LEAF" ? expr : `(${expr})`;
   }).join(` ${tree.type} `);
+}
+
+export function defaultConditionForAttribute(attribute: PolicyAttribute): EditablePolicyCondition {
+  const firstValue = firstAttributeValue(attribute);
+  return {
+    field: attributeCode(attribute),
+    operator: attributeOperators(attribute)[0] ?? "=",
+    value: firstValue?.valueCode ?? "",
+    valueId: firstValue?.valueId,
+    valueCode: firstValue?.valueCode,
+    label: firstValue?.label,
+    path: firstValue?.path
+  };
 }
 
 function quoteIfNeeded(value: string): string {

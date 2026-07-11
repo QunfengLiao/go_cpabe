@@ -2,7 +2,10 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"strings"
 	"time"
 
 	"go-cpabe/backend/internal/domain"
@@ -28,6 +31,7 @@ type LoginInput struct {
 	TenantCode string
 	UserAgent  string
 	ClientIP   string
+	DeviceID   string
 }
 
 // RefreshInput 是刷新 token 时传入的 refresh token 和客户端上下文。
@@ -35,6 +39,7 @@ type RefreshInput struct {
 	RefreshToken string
 	UserAgent    string
 	ClientIP     string
+	DeviceID     string
 }
 
 // AuthService 负责注册、登录、刷新和退出登录等认证业务。
@@ -139,7 +144,7 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (LoginResult,
 		}
 		result.PlatformRoles = platformRoles
 	}
-	pair, err := s.issueTokenPair(ctx, user.ID, user.Role, "", input.UserAgent, input.ClientIP)
+	pair, err := s.issueTokenPair(ctx, user.ID, user.Role, "", normalizeDeviceID(input.DeviceID, input.UserAgent, input.ClientIP), input.UserAgent, input.ClientIP)
 	if err != nil {
 		return LoginResult{}, response.ErrRedisWriteFailed
 	}
@@ -169,7 +174,7 @@ func (s *AuthService) Refresh(ctx context.Context, input RefreshInput) (auth.Tok
 		// 刷新时重新读取用户状态，让禁用用户的长期会话在下一次刷新时失效。
 		return auth.TokenPair{}, response.ErrUserDisabled
 	}
-	return s.issueTokenPair(ctx, user.ID, user.Role, parts.TokenID, input.UserAgent, input.ClientIP)
+	return s.issueTokenPair(ctx, user.ID, user.Role, parts.TokenID, normalizeDeviceID(firstNonEmpty(input.DeviceID, session.DeviceID), input.UserAgent, input.ClientIP), input.UserAgent, input.ClientIP)
 }
 
 // Logout 校验 refresh token 归属后删除服务端会话，使该长期凭证立即失效。
@@ -190,7 +195,7 @@ func (s *AuthService) Logout(ctx context.Context, refreshToken string) error {
 }
 
 // issueTokenPair 生成短期 access token 和长期 refresh session，oldTokenID 非空时执行会话轮换。
-func (s *AuthService) issueTokenPair(ctx context.Context, userID uint64, role domain.UserRole, oldTokenID string, userAgent string, clientIP string) (auth.TokenPair, error) {
+func (s *AuthService) issueTokenPair(ctx context.Context, userID uint64, role domain.UserRole, oldTokenID string, deviceID string, userAgent string, clientIP string) (auth.TokenPair, error) {
 	access, accessExpiresAt, err := s.manager.GenerateAccessToken(userID, role)
 	if err != nil {
 		return auth.TokenPair{}, err
@@ -205,6 +210,7 @@ func (s *AuthService) issueTokenPair(ctx context.Context, userID uint64, role do
 		UserID:           userID,
 		Role:             role,
 		SessionID:        sessionID,
+		DeviceID:         deviceID,
 		RefreshTokenHash: auth.HashRefreshToken(refreshToken),
 		IssuedAt:         now,
 		ExpiresAt:        refreshExpiresAt,
@@ -214,6 +220,8 @@ func (s *AuthService) issueTokenPair(ctx context.Context, userID uint64, role do
 	if oldTokenID != "" {
 		// Refresh Token 使用轮换模型：旧 token 成功刷新后立即失效，降低被重放的窗口。
 		err = s.store.Rotate(ctx, oldTokenID, tokenID, session, s.refreshTTL)
+	} else if deviceID != "" {
+		err = s.store.ReplaceDeviceSession(ctx, userID, deviceID, tokenID, session, s.refreshTTL)
 	} else {
 		err = s.store.Save(ctx, tokenID, session, s.refreshTTL)
 	}
@@ -229,4 +237,24 @@ func (s *AuthService) issueTokenPair(ctx context.Context, userID uint64, role do
 		AccessExpiresAt:       accessExpiresAt,
 		RefreshExpiresAt:      refreshExpiresAt,
 	}, nil
+}
+
+// normalizeDeviceID 为旧客户端补齐设备标识，使同一用户同一设备重复登录能替换旧会话。
+func normalizeDeviceID(deviceID string, userAgent string, clientIP string) string {
+	trimmed := strings.TrimSpace(deviceID)
+	if trimmed != "" {
+		return trimmed
+	}
+	sum := sha256.Sum256([]byte(strings.TrimSpace(userAgent) + "|" + strings.TrimSpace(clientIP)))
+	return "legacy-" + hex.EncodeToString(sum[:12])
+}
+
+// firstNonEmpty 返回第一个非空字符串，避免旧刷新会话缺少 device_id 时覆盖 Electron 新传入的稳定设备标识。
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }

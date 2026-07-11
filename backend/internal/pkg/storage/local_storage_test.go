@@ -14,7 +14,7 @@ func TestLocalStorageSaveAvatar(t *testing.T) {
 	if err != nil {
 		t.Fatalf("save avatar: %v", err)
 	}
-	if !strings.HasPrefix(result.URL, "/uploads/avatars/avatars/7/") {
+	if !strings.HasPrefix(result.URL, "/uploads/avatars/7/") {
 		t.Fatalf("unexpected url: %s", result.URL)
 	}
 	if result.ObjectKey == "" {

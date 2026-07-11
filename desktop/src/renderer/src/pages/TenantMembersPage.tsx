@@ -1,20 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
-import { assignTenantMemberRole, listTenantMembers } from "../api/tenant";
+import { listTenantMembers } from "../api/tenant";
 import { ApiError } from "../api/request";
 import { useAuth } from "../auth/AuthContext";
 import { Alert } from "../components/Alert";
 import { TenantMemberRoleDialog } from "../components/TenantMemberRoleDialog";
-import type { TenantBusinessRole, TenantMember, TenantRole } from "../types";
+import type { MemberRoleDTO, TenantMember, TenantRole } from "../types";
 
 export function TenantMembersPage() {
   const auth = useAuth();
   const tenantId = Number(auth.currentTenantId);
   const currentTenant = useMemo(() => auth.tenants.find((tenant) => tenant.tenant_id === tenantId), [auth.tenants, tenantId]);
-  const canAssignBusinessRole = Boolean(currentTenant?.roles?.includes("TENANT_ADMIN"));
+  const canAssignBusinessRole = auth.hasPermission("tenant.member.manage");
   const [members, setMembers] = useState<TenantMember[]>([]);
   const [selectedMember, setSelectedMember] = useState<TenantMember | null>(null);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
@@ -39,20 +38,20 @@ export function TenantMembersPage() {
     void loadMembers();
   }, [tenantId]);
 
-  async function onSaveRole(role: TenantBusinessRole) {
+  async function onRolesSaved(result: MemberRoleDTO) {
     if (!selectedMember) return;
-    setSaving(true);
     setError("");
     setSuccess("");
     try {
-      await assignTenantMemberRole(tenantId, selectedMember.user_id, role);
+      if (String(selectedMember.user_id) === auth.currentUserId) {
+        await auth.refreshAuthorization();
+      }
       setSelectedMember(null);
       setSuccess("成员角色已更新");
+      setMembers((current) => current.map((member) => member.user_id === result.userId ? { ...member, roles: result.roles.map((role) => role.code as TenantRole) } : member));
       await loadMembers();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "角色保存失败");
-    } finally {
-      setSaving(false);
+      setError(err instanceof ApiError ? err.message : "角色刷新失败");
     }
   }
 
@@ -108,7 +107,7 @@ export function TenantMembersPage() {
                     {canAssignBusinessRole ? (
                       <button
                         className="secondary-action"
-                        disabled={member.member_status !== "active" || member.roles.includes("TENANT_ADMIN")}
+                        disabled={member.member_status !== "active"}
                         onClick={() => setSelectedMember(member)}
                         type="button"
                       >
@@ -131,8 +130,7 @@ export function TenantMembersPage() {
         <TenantMemberRoleDialog
           member={selectedMember}
           onClose={() => setSelectedMember(null)}
-          onSave={(role) => void onSaveRole(role)}
-          saving={saving}
+          onSaved={(result) => void onRolesSaved(result)}
         />
       )}
     </section>

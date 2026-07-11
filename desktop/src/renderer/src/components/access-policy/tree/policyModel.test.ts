@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { mockAttributes, mockTree } from "./mockData";
-import { addChildToPolicyTree, backendToEditableTree, createAttributePolicyNode, layoutPolicyTree, treeToFlow, validateEditablePolicyTree } from "./policyModel";
+import { addChildToPolicyTree, backendToEditableTree, createAttributePolicyNode, editableToBackendTree, hydrateEditableTreeLabels, layoutPolicyTree, treeToFlow, validateEditablePolicyTree } from "./policyModel";
+import type { PolicyAttribute, PolicyTreeNode } from "./types";
 
 describe("policyTree 单一数据源模型", () => {
   it("从访问树生成 React Flow 节点和显式连线", () => {
@@ -29,5 +30,31 @@ describe("policyTree 单一数据源模型", () => {
     const errors = validateEditablePolicyTree(tree, mockAttributes);
     expect(errors).toHaveLength(0);
     expect(JSON.stringify(tree)).toBe(before);
+  });
+
+  it("用租户属性字典补全画布中文展示，同时保留稳定编码", () => {
+    const attributes: PolicyAttribute[] = [{
+      id: 20,
+      attrCode: "department",
+      attrName: "部门",
+      attrType: "tree",
+      tree: [{ valueCode: "AI_PLATFORM", valueId: 2001, label: "AI 平台部", path: "/AI_BG/AI_PLATFORM" }],
+      status: "enabled"
+    }];
+    const sourceTree: PolicyTreeNode = { type: "LEAF", attribute: "department", operator: "belongs_to", value: "AI_PLATFORM" };
+    const editable = hydrateEditableTreeLabels(backendToEditableTree(sourceTree), attributes);
+    const flow = treeToFlow(editable, new Map(), new Map(attributes.map((attr) => [attr.attrCode ?? "", attr])));
+
+    expect(flow.nodes[0]?.data.displayValue).toBe("AI 平台部");
+    expect(editableToBackendTree(editable)).toEqual({
+      type: "LEAF",
+      attribute: "department",
+      operator: "belongs_to",
+      value: "AI_PLATFORM",
+      valueId: 2001,
+      valueCode: "AI_PLATFORM",
+      label: "AI 平台部",
+      path: "/AI_BG/AI_PLATFORM"
+    });
   });
 });

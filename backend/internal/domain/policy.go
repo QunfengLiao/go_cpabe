@@ -23,6 +23,8 @@ const (
 )
 
 const (
+	// PolicyAttributeTree 表示属性值来自租户树形结构，MVP 用于 department。
+	PolicyAttributeTree PolicyAttributeType = "tree"
 	// PolicyAttributeString 表示属性值由数据拥有者输入文本。
 	PolicyAttributeString PolicyAttributeType = "string"
 	// PolicyAttributeEnum 表示属性值必须来自平台管理员维护的可选值。
@@ -38,7 +40,7 @@ func (s PolicyStatus) Valid() bool {
 
 // Valid 判断属性类型是否属于访问树叶子节点可校验的类型。
 func (t PolicyAttributeType) Valid() bool {
-	return t == PolicyAttributeString || t == PolicyAttributeEnum || t == PolicyAttributeNumber
+	return t == PolicyAttributeTree || t == PolicyAttributeString || t == PolicyAttributeEnum || t == PolicyAttributeNumber
 }
 
 // PolicyAttribute 是平台管理员维护的属性字典，决定 DATA_OWNER 构建访问树时能引用哪些属性。

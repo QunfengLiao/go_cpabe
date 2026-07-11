@@ -31,6 +31,7 @@ type RefreshSession struct {
 	UserID           uint64          `json:"user_id"`
 	Role             domain.UserRole `json:"role"`
 	SessionID        string          `json:"session_id"`
+	DeviceID         string          `json:"device_id"`
 	RefreshTokenHash string          `json:"refresh_token_hash"`
 	IssuedAt         time.Time       `json:"issued_at"`
 	ExpiresAt        time.Time       `json:"expires_at"`

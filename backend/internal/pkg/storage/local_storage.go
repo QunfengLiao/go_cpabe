@@ -29,7 +29,7 @@ func (s *LocalStorage) SaveAvatar(_ context.Context, userID uint64, filename str
 	if err != nil {
 		return UploadResult{}, err
 	}
-	relDir := filepath.Join("avatars", uintToString(userID))
+	relDir := uintToString(userID)
 	// 文件名使用服务端生成的时间戳和随机后缀，不信任用户上传的原始文件名，降低路径穿越和覆盖风险。
 	name := time.Now().UTC().Format("20060102150405") + "_" + random + ext
 	objectKey := filepath.ToSlash(filepath.Join(relDir, name))

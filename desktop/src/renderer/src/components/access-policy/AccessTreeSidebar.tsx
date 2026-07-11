@@ -7,6 +7,8 @@ export function AccessTreeSidebar({
   attributes,
   templates,
   dirty,
+  attributesLoading = false,
+  attributesError = "",
   onAddLogic,
   onCreateAttributeNode,
   onApplyTemplate
@@ -14,6 +16,8 @@ export function AccessTreeSidebar({
   attributes: PolicyAttribute[];
   templates: PolicyTemplate[];
   dirty: boolean;
+  attributesLoading?: boolean;
+  attributesError?: string;
   onAddLogic: (type: "AND" | "OR") => void;
   onCreateAttributeNode: (code: string) => void;
   onApplyTemplate: (template: PolicyTemplate) => void;
@@ -21,7 +25,7 @@ export function AccessTreeSidebar({
   return (
     <aside className="access-tree-sidebar">
       <LogicNodeToolbox onAddLogic={onAddLogic} />
-      <AttributeDictionaryPanel attributes={attributes} onCreateAttributeNode={onCreateAttributeNode} />
+      <AttributeDictionaryPanel attributes={attributes} loading={attributesLoading} error={attributesError} onCreateAttributeNode={onCreateAttributeNode} />
       <PolicyTemplatePanel templates={templates} dirty={dirty} onApplyTemplate={onApplyTemplate} />
     </aside>
   );

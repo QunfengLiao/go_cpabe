@@ -56,8 +56,12 @@ export function PlatformTenantCreatePage() {
 
       <Alert type="error" message={error} />
 
-      <form className="panel platform-form" onSubmit={(event) => void onSubmit(event)}>
-        <div className="platform-form-grid">
+      <div className="platform-form-shell">
+        <section className="panel platform-create-tip">
+          <h3>创建说明</h3>
+          <p>租户编码会作为登录选择、接口上下文和演示数据匹配的稳定标识，创建后不建议频繁变更。</p>
+        </section>
+        <form className="panel platform-form platform-form-narrow" onSubmit={(event) => void onSubmit(event)}>
           <label className="field">
             <span>租户名称</span>
             <input value={name} maxLength={128} onChange={(event) => setName(event.target.value)} placeholder="例如：深信服科技" />
@@ -71,20 +75,20 @@ export function PlatformTenantCreatePage() {
               placeholder="例如：sangfor"
             />
           </label>
-        </div>
-        <label className="field">
-          <span>租户描述</span>
-          <textarea value={description} maxLength={512} onChange={(event) => setDescription(event.target.value)} placeholder="用于说明租户用途，不填写也可以" />
-        </label>
-        <div className="platform-actions platform-actions-left">
-          <button className="primary-action" type="submit" disabled={saving}>
-            {saving ? "创建中..." : "创建租户"}
-          </button>
-          <Link className="secondary-action" to="/platform/tenants">
-            取消
-          </Link>
-        </div>
-      </form>
+          <label className="field">
+            <span>租户描述</span>
+            <textarea value={description} maxLength={512} onChange={(event) => setDescription(event.target.value)} placeholder="用于说明租户用途，不填写也可以" />
+          </label>
+          <div className="platform-actions platform-actions-left">
+            <button className="primary-action" type="submit" disabled={saving}>
+              {saving ? "创建中..." : "创建租户"}
+            </button>
+            <Link className="secondary-action" to="/platform/tenants">
+              取消
+            </Link>
+          </div>
+        </form>
+      </div>
     </section>
   );
 }

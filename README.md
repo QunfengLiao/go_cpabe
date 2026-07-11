@@ -94,6 +94,18 @@ go test ./...
 go run ./cmd/server
 ```
 
+`cmd/server` 默认只连接 MySQL/Redis 并启动 HTTP 服务，不再自动执行 GORM
+`AutoMigrate` 或初始化数据。需要变更表结构或写入演示数据时，请显式运行：
+
+```bash
+go run ./cmd/migrate
+go run ./cmd/seed
+go run ./cmd/seed -demo
+```
+
+仅在本地临时调试时，可以通过 `RUN_AUTO_MIGRATE=true`、`RUN_SEED=true`、
+`RUN_DEMO_SEED=true` 让 `cmd/server` 启动时执行对应步骤；这些开关默认关闭。
+
 默认服务地址：
 
 ```text
@@ -205,3 +217,11 @@ rg -n "password|secret|token|真实|服务器" .env.example README.md backend de
 ## 安全边界
 
 本项目用于学习、验证和演示 CP-ABE 应用场景。当前基础工程只承诺本地开发和演示能力，不承诺生产环境安全能力。真实 CP-ABE 加解密必须依赖真实 Go 密码学库，后续实现前仍需继续遵守 SpecKit 的 `spec -> plan -> tasks -> implementation` 流程。
+
+## 租户组织架构管理
+
+组织管理模块使用当前租户上下文接口 `/api/v1/tenant/...`，前端入口位于租户管理员侧边栏“租户管理 / 组织管理”。该模块用于维护部门树、成员部门归属、主部门和部门负责人/副负责人。
+
+上线前需要在已包含 `006-tenant-org-attributes` 基础表的数据库中执行 `backend/migrations/008_tenant_org_management.sql`。该迁移会补充 `tenant_org_members.is_primary`，将旧 `ORG_MANAGER` 迁移为 `ORG_LEADER`，停用旧 `ORG_MEMBER/DATA_OWNER/DATA_VISITOR` 部门职务，并把 `DATA_OWNER/DATA_VISITOR` 对应系统语义补齐到 `user_roles` 的 `DO/DU`。
+
+旧 `/api/v1/tenants/:id/...` 组织写接口仅作为过渡入口，新前端页面只调用 `/api/v1/tenant/...`。系统角色仍通过已有成员角色接口维护，部门职务接口只写 `ORG_LEADER` 和 `DEPUTY_LEADER`。

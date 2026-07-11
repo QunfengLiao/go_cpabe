@@ -1,0 +1,121 @@
+CREATE TABLE IF NOT EXISTS tenant_org_units (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  tenant_id BIGINT UNSIGNED NOT NULL,
+  parent_id BIGINT UNSIGNED NULL,
+  code VARCHAR(64) NOT NULL,
+  name VARCHAR(128) NOT NULL,
+  path VARCHAR(512) NOT NULL,
+  level INT NOT NULL DEFAULT 1,
+  sort_order INT NOT NULL DEFAULT 0,
+  status VARCHAR(32) NOT NULL DEFAULT 'enabled',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  deleted_at DATETIME(3) NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_tenant_org_units_tenant_code (tenant_id, code),
+  UNIQUE KEY uk_tenant_org_units_tenant_path (tenant_id, path),
+  KEY idx_tenant_org_units_parent (tenant_id, parent_id, sort_order),
+  KEY idx_tenant_org_units_status (tenant_id, status),
+  KEY idx_tenant_org_units_deleted_at (deleted_at)
+);
+
+CREATE TABLE IF NOT EXISTS tenant_org_members (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  tenant_id BIGINT UNSIGNED NOT NULL,
+  org_unit_id BIGINT UNSIGNED NOT NULL,
+  user_id BIGINT UNSIGNED NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'active',
+  source VARCHAR(32) NOT NULL DEFAULT 'manual',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  deleted_at DATETIME(3) NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_tenant_org_members_scope (tenant_id, org_unit_id, user_id),
+  KEY idx_tenant_org_members_user (tenant_id, user_id),
+  KEY idx_tenant_org_members_unit (tenant_id, org_unit_id, status),
+  KEY idx_tenant_org_members_deleted_at (deleted_at)
+);
+
+CREATE TABLE IF NOT EXISTS tenant_org_member_roles (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  tenant_id BIGINT UNSIGNED NOT NULL,
+  org_member_id BIGINT UNSIGNED NOT NULL,
+  org_unit_id BIGINT UNSIGNED NOT NULL,
+  user_id BIGINT UNSIGNED NOT NULL,
+  role_code VARCHAR(64) NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'active',
+  source VARCHAR(32) NOT NULL DEFAULT 'manual',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  deleted_at DATETIME(3) NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_tenant_org_member_roles_scope (tenant_id, org_unit_id, user_id, role_code),
+  KEY idx_tenant_org_member_roles_member (org_member_id),
+  KEY idx_tenant_org_member_roles_user (tenant_id, user_id),
+  KEY idx_tenant_org_member_roles_deleted_at (deleted_at)
+);
+
+CREATE TABLE IF NOT EXISTS tenant_attributes (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  tenant_id BIGINT UNSIGNED NOT NULL,
+  attr_code VARCHAR(64) NOT NULL,
+  attr_name VARCHAR(128) NOT NULL,
+  attr_type VARCHAR(32) NOT NULL,
+  value_source VARCHAR(32) NOT NULL DEFAULT 'manual',
+  is_required TINYINT(1) NOT NULL DEFAULT 0,
+  is_policy_enabled TINYINT(1) NOT NULL DEFAULT 1,
+  description TEXT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'enabled',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  deleted_at DATETIME(3) NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_tenant_attributes_tenant_code (tenant_id, attr_code),
+  KEY idx_tenant_attributes_policy (tenant_id, is_policy_enabled, status),
+  KEY idx_tenant_attributes_deleted_at (deleted_at)
+);
+
+CREATE TABLE IF NOT EXISTS tenant_attribute_values (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  tenant_id BIGINT UNSIGNED NOT NULL,
+  attribute_id BIGINT UNSIGNED NOT NULL,
+  value_code VARCHAR(128) NOT NULL,
+  value_label VARCHAR(128) NOT NULL,
+  value_path VARCHAR(512) NULL,
+  org_unit_id BIGINT UNSIGNED NULL,
+  sort_order INT NOT NULL DEFAULT 0,
+  status VARCHAR(32) NOT NULL DEFAULT 'enabled',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  deleted_at DATETIME(3) NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_tenant_attribute_values_code (tenant_id, attribute_id, value_code),
+  KEY idx_tenant_attribute_values_attr (tenant_id, attribute_id, status),
+  KEY idx_tenant_attribute_values_org_unit (tenant_id, org_unit_id),
+  KEY idx_tenant_attribute_values_deleted_at (deleted_at)
+);
+
+CREATE TABLE IF NOT EXISTS user_attributes (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  tenant_id BIGINT UNSIGNED NOT NULL,
+  user_id BIGINT UNSIGNED NOT NULL,
+  attribute_id BIGINT UNSIGNED NOT NULL,
+  attr_code VARCHAR(64) NOT NULL,
+  value_id BIGINT UNSIGNED NULL,
+  value_code VARCHAR(128) NULL,
+  value_label VARCHAR(128) NULL,
+  value_path VARCHAR(255) NULL,
+  number_value DECIMAL(10,2) NULL,
+  source_type VARCHAR(64) NOT NULL,
+  source_id BIGINT UNSIGNED NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'active',
+  synced_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  deleted_at DATETIME(3) NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_user_attributes_effective (tenant_id, user_id, attr_code, value_code, value_path, source_type, source_id),
+  KEY idx_user_attributes_user (tenant_id, user_id, status),
+  KEY idx_user_attributes_attr (tenant_id, attr_code, status),
+  KEY idx_user_attributes_deleted_at (deleted_at)
+);

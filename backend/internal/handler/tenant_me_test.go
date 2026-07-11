@@ -18,6 +18,17 @@ func TestMyTenantsEndpoint(t *testing.T) {
 	if data["tenants"] == nil || data["current_tenant_id"] == nil {
 		t.Fatalf("unexpected tenant data: %+v", data)
 	}
+	if data["platform_roles"] == nil {
+		t.Fatalf("tenant context must include platform_roles: %+v", data)
+	}
+	if data["user"] == nil {
+		t.Fatalf("tenant context must include user: %+v", data)
+	}
+
+	context := performJSON(app.router, http.MethodGet, "/api/v1/me/context", nil, access)
+	if context.Code != http.StatusOK {
+		t.Fatalf("context status=%d body=%s", context.Code, context.Body.String())
+	}
 
 	noLogin := performJSON(app.router, http.MethodGet, "/api/v1/me/tenants", nil, "")
 	if noLogin.Code != http.StatusUnauthorized {

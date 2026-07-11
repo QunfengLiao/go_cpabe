@@ -28,6 +28,12 @@ const (
 	OperatorEQ Operator = "="
 	// OperatorNEQ 表示属性值必须不等于指定值。
 	OperatorNEQ Operator = "!="
+	// OperatorGTE 表示数字属性值必须大于或等于指定值。
+	OperatorGTE Operator = ">="
+	// OperatorLTE 表示数字属性值必须小于或等于指定值。
+	OperatorLTE Operator = "<="
+	// OperatorBelongsTo 表示树形属性属于指定节点或其下级节点。
+	OperatorBelongsTo Operator = "belongs_to"
 )
 
 // Node 是后端保存和校验访问树的权威结构，不包含任何前端画布坐标。
@@ -37,14 +43,26 @@ type Node struct {
 	Attribute string   `json:"attribute,omitempty"`
 	Operator  Operator `json:"operator,omitempty"`
 	Value     any      `json:"value,omitempty"`
+	ValueID   uint64   `json:"valueId,omitempty"`
+	ValueCode string   `json:"valueCode,omitempty"`
+	Label     string   `json:"label,omitempty"`
+	Path      string   `json:"path,omitempty"`
 }
 
 // AttributeMeta 是访问树校验所需的最小属性字典信息，避免 policytree 包依赖数据库仓储。
 type AttributeMeta struct {
-	Code   string
-	Type   domain.PolicyAttributeType
-	Values []string
-	Status domain.PolicyStatus
+	Code         string
+	Type         domain.PolicyAttributeType
+	Values       []string
+	ValuesByCode map[string]AttributeValueMeta
+	Status       domain.PolicyStatus
+}
+
+// AttributeValueMeta 是访问树叶子节点稳定值字段的后端校验依据。
+type AttributeValueMeta struct {
+	ID   uint64
+	Code string
+	Path string
 }
 
 // ValidationError 描述访问树校验失败原因，Path 采用 root.children[0] 形式方便前端定位节点。

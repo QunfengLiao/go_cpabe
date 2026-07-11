@@ -32,11 +32,15 @@ type loginRequest struct {
 	Password        string `json:"password"`
 	TenantCode      string `json:"tenantCode"`
 	TenantCodeSnake string `json:"tenant_code"`
+	DeviceID        string `json:"device_id"`
+	DeviceIDCamel   string `json:"deviceId"`
 }
 
 // refreshRequest 是刷新 access token 的请求体。
 type refreshRequest struct {
 	RefreshToken string `json:"refresh_token"`
+	DeviceID     string `json:"device_id"`
+	DeviceIDCamel string `json:"deviceId"`
 }
 
 // logoutRequest 是退出登录的请求体，必须携带要失效的 refresh token。
@@ -78,6 +82,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		TenantCode: firstNonEmpty(req.TenantCode, req.TenantCodeSnake),
 		UserAgent:  c.GetHeader("User-Agent"),
 		ClientIP:   c.ClientIP(),
+		DeviceID:   firstNonEmpty(req.DeviceID, req.DeviceIDCamel),
 	})
 	if err != nil {
 		response.Fail(c, err)
@@ -92,6 +97,9 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		"user":                     result.User,
 		"current_tenant_id":        result.Tenant.CurrentTenantID,
 		"current_tenant_code":      result.Tenant.CurrentTenantCode,
+		"currentTenant":            result.Tenant.CurrentTenant,
+		"tenantRoles":              result.Tenant.TenantRoles,
+		"permissions":              result.Tenant.Permissions,
 		"tenants":                  result.Tenant.Tenants,
 		"platform_roles":           result.PlatformRoles,
 	})
@@ -122,6 +130,7 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		RefreshToken: req.RefreshToken,
 		UserAgent:    c.GetHeader("User-Agent"),
 		ClientIP:     c.ClientIP(),
+		DeviceID:     firstNonEmpty(req.DeviceID, req.DeviceIDCamel),
 	})
 	if err != nil {
 		response.Fail(c, err)
