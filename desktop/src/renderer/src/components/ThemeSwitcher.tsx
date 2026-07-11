@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import { modeOptions, themeOptions } from "../theme/themes";
 import { useTheme } from "../theme/ThemeProvider";
 
@@ -17,14 +18,40 @@ function PaletteIcon() {
 export function ThemeSwitcher({ compact = false }: { compact?: boolean }) {
   const { theme, mode, setTheme, setMode } = useTheme();
   const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement | null>(null);
+  const [panelStyle, setPanelStyle] = useState<CSSProperties>({});
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const panelRef = useRef<HTMLElement | null>(null);
+
+  const updatePanelPosition = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const margin = 12;
+    const gap = 10;
+    const panelWidth = Math.min(360, viewportWidth - margin * 2);
+    const estimatedPanelHeight = Math.min(430, viewportHeight - margin * 2);
+    const openToRight = compact && rect.right + gap + panelWidth <= viewportWidth - margin;
+    const rawLeft = openToRight ? rect.right + gap : rect.right - panelWidth;
+    const left = Math.min(Math.max(margin, rawLeft), viewportWidth - panelWidth - margin);
+    const bottomTop = rect.bottom + gap;
+    const rawTop = bottomTop + estimatedPanelHeight <= viewportHeight - margin ? bottomTop : rect.top - estimatedPanelHeight - gap;
+    const top = Math.min(Math.max(margin, rawTop), viewportHeight - estimatedPanelHeight - margin);
+    setPanelStyle({ left, top, width: panelWidth });
+  }, [compact]);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    updatePanelPosition();
+  }, [open, updatePanelPosition]);
 
   useEffect(() => {
     if (!open) return;
 
     function onPointerDown(event: PointerEvent) {
       const target = event.target as Node;
-      if (rootRef.current?.contains(target)) return;
+      if (triggerRef.current?.contains(target) || panelRef.current?.contains(target)) return;
       setOpen(false);
     }
 
@@ -34,15 +61,20 @@ export function ThemeSwitcher({ compact = false }: { compact?: boolean }) {
 
     document.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
+    window.addEventListener("resize", updatePanelPosition);
+    window.addEventListener("scroll", updatePanelPosition, true);
     return () => {
       document.removeEventListener("pointerdown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("resize", updatePanelPosition);
+      window.removeEventListener("scroll", updatePanelPosition, true);
     };
-  }, [open]);
+  }, [open, updatePanelPosition]);
 
   return (
-    <div className={compact ? "theme-switcher theme-switcher-compact" : "theme-switcher"} ref={rootRef}>
+    <div className={compact ? "theme-switcher theme-switcher-compact" : "theme-switcher"}>
       <button
+        ref={triggerRef}
         className="theme-trigger"
         type="button"
         onClick={() => setOpen((value) => !value)}
@@ -52,44 +84,46 @@ export function ThemeSwitcher({ compact = false }: { compact?: boolean }) {
       >
         <PaletteIcon />
       </button>
-      {open && (
-        <section className="theme-panel" aria-label="外观设置">
-          <div className="theme-panel-header">
-            <strong>外观设置</strong>
-            <span>主题色与显示模式</span>
-          </div>
-          <div className="theme-section">
-            <span className="theme-section-title">主题色</span>
-            <div className="theme-option-grid">
-              {themeOptions.map((option) => (
-                <button
-                  className={theme === option.value ? "theme-option theme-option-active" : "theme-option"}
-                  key={option.value}
-                  onClick={() => setTheme(option.value)}
-                  type="button"
-                >
-                  <span className="theme-swatch" style={{ background: option.swatch }} />
-                  <span>
+      {open &&
+        createPortal(
+          <section className="theme-panel" aria-label="外观设置" ref={panelRef} style={panelStyle}>
+            <div className="theme-panel-header">
+              <strong>外观设置</strong>
+              <span>主题色与显示模式</span>
+            </div>
+            <div className="theme-section">
+              <span className="theme-section-title">主题色</span>
+              <div className="theme-option-grid">
+                {themeOptions.map((option) => (
+                  <button
+                    className={theme === option.value ? "theme-option theme-option-active" : "theme-option"}
+                    key={option.value}
+                    onClick={() => setTheme(option.value)}
+                    type="button"
+                  >
+                    <span className="theme-swatch" style={{ background: option.swatch }} />
+                    <span>
+                      <strong>{option.label}</strong>
+                      <small>{option.description}</small>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="theme-section">
+              <span className="theme-section-title">显示模式</span>
+              <div className="mode-option-grid">
+                {modeOptions.map((option) => (
+                  <button className={mode === option.value ? "mode-option mode-option-active" : "mode-option"} key={option.value} onClick={() => setMode(option.value)} type="button">
                     <strong>{option.label}</strong>
                     <small>{option.description}</small>
-                  </span>
-                </button>
-              ))}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-          <div className="theme-section">
-            <span className="theme-section-title">显示模式</span>
-            <div className="mode-option-grid">
-              {modeOptions.map((option) => (
-                <button className={mode === option.value ? "mode-option mode-option-active" : "mode-option"} key={option.value} onClick={() => setMode(option.value)} type="button">
-                  <strong>{option.label}</strong>
-                  <small>{option.description}</small>
-                </button>
-              ))}
-            </div>
-          </div>
-        </section>
-      )}
+          </section>,
+          document.body
+        )}
     </div>
   );
 }

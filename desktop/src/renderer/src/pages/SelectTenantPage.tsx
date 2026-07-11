@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { getStoredTenants, saveCurrentTenant } from "../api/authStorage";
-import { listMyTenants, switchTenant } from "../api/tenant";
+import { getStoredTenants } from "../api/authStorage";
 import { useAuth } from "../auth/AuthContext";
 import { Alert } from "../components/Alert";
 import { ThemeSwitcher } from "../components/ThemeSwitcher";
@@ -10,6 +9,7 @@ import type { TenantSummary } from "../types";
 
 export function SelectTenantPage() {
   const auth = useAuth();
+  const { isAuthenticated, refreshTenantContext } = auth;
   const navigate = useNavigate();
   const [tenants, setTenants] = useState<TenantSummary[]>(() => getStoredTenants());
   const [loading, setLoading] = useState(false);
@@ -17,12 +17,12 @@ export function SelectTenantPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (!auth.isAuthenticated) return;
+    if (!isAuthenticated) return;
     let cancelled = false;
     setLoading(true);
-    listMyTenants()
-      .then((data) => {
-        if (!cancelled) setTenants(data.tenants ?? []);
+    refreshTenantContext()
+      .then(() => {
+        if (!cancelled) setTenants(getStoredTenants());
       })
       .catch((err) => {
         if (!cancelled) setError(err instanceof Error ? err.message : "查询租户列表失败");
@@ -33,7 +33,7 @@ export function SelectTenantPage() {
     return () => {
       cancelled = true;
     };
-  }, [auth.isAuthenticated]);
+  }, [isAuthenticated, refreshTenantContext]);
 
   const tenantCards = useMemo(() => Object.values(tenantLoginConfigs), []);
 
@@ -41,8 +41,7 @@ export function SelectTenantPage() {
     setError("");
     setSwitchingId(tenant.tenant_id);
     try {
-      const data = await switchTenant(tenant.tenant_id);
-      saveCurrentTenant(data.current_tenant_id, data.tenant?.tenant_code ?? tenant.tenant_code);
+      await auth.switchTenant(tenant.tenant_id);
       navigate("/profile", { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "切换租户失败");

@@ -1,4 +1,4 @@
-import type { PlatformDashboard, TenantAdminAssignment, TenantMember, TenantStatus, TenantSummary } from "../types";
+import type { PlatformDashboard, TenantAdminAssignment, TenantMember, TenantStatus, TenantSummary, User } from "../types";
 import { request } from "./request";
 
 export interface CreatePlatformTenantPayload {
@@ -6,6 +6,14 @@ export interface CreatePlatformTenantPayload {
   code: string;
   description?: string;
   status?: TenantStatus;
+}
+
+export interface CreateTenantAdminAccountPayload {
+  username: string;
+  displayName: string;
+  email: string;
+  phone?: string;
+  password?: string;
 }
 
 export function getPlatformDashboard(): Promise<PlatformDashboard> {
@@ -43,6 +51,12 @@ export async function listPlatformTenantUsers(tenantId: number): Promise<TenantM
   return data.users;
 }
 
+export async function searchPlatformUsers(query: string): Promise<User[]> {
+  const params = new URLSearchParams({ q: query });
+  const data = await request<{ users: User[] }>(`/platform/users/search?${params.toString()}`);
+  return data.users;
+}
+
 export function addPlatformTenantUser(tenantId: number, userId: number): Promise<TenantMember> {
   return request(`/platform/tenants/${tenantId}/users`, {
     method: "POST",
@@ -58,6 +72,13 @@ export function assignPlatformTenantAdmin(tenantId: number, userId: number): Pro
   return request(`/platform/tenants/${tenantId}/admins`, {
     method: "POST",
     body: JSON.stringify({ user_id: userId })
+  });
+}
+
+export function createPlatformTenantAdminAccount(tenantId: number, payload: CreateTenantAdminAccountPayload): Promise<TenantAdminAssignment> {
+  return request(`/platform/tenants/${tenantId}/admins`, {
+    method: "POST",
+    body: JSON.stringify(payload)
   });
 }
 

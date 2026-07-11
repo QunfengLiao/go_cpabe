@@ -1,13 +1,27 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
+import { AnimatePresence, motion } from "framer-motion";
+import { Button, Layout, Menu, Tooltip, type MenuProps } from "antd";
+import {
+  ApartmentOutlined,
+  DashboardOutlined,
+  DownOutlined,
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
+  RightOutlined,
+  SafetyCertificateOutlined,
+  UserOutlined
+} from "@ant-design/icons";
 import { ApiError } from "../api/request";
 import { useAuth } from "../auth/AuthContext";
 import { API_BASE_URL } from "../api/request";
 import { avatarInitial, resolveAvatarURL } from "../utils/avatar";
-import type { CachedAccount } from "../types";
+import type { CachedAccount, TenantRole } from "../types";
 import { ThemeSwitcher } from "./ThemeSwitcher";
+import { brandingForTenant } from "../theme/tenantBranding";
 
+const { Sider, Content } = Layout;
 const ACCOUNT_MENU_WIDTH = 320;
 const ACCOUNT_MENU_GAP = 10;
 const VIEWPORT_MARGIN = 12;
@@ -15,22 +29,89 @@ const VIEWPORT_MARGIN = 12;
 export function AppLayout() {
   const auth = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.localStorage.getItem("sidebar-collapsed") === "true");
+  const [openKeys, setOpenKeys] = useState<string[]>(() => {
+    const stored = window.localStorage.getItem("sidebar-open-keys");
+    return stored ? JSON.parse(stored) as string[] : ["platform", "policy", "tenant"];
+  });
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [switchingId, setSwitchingId] = useState("");
   const [accountMessage, setAccountMessage] = useState("");
+  const [tenantLogoFailed, setTenantLogoFailed] = useState(false);
   const accountButtonRef = useRef<HTMLButtonElement | null>(null);
   const accountMenuRef = useRef<HTMLDivElement | null>(null);
   const [accountMenuStyle, setAccountMenuStyle] = useState({ left: VIEWPORT_MARGIN, top: VIEWPORT_MARGIN });
-  const upcomingModules = ["文件管理", "密钥管理", "加密算法对比"];
   const avatarURL = resolveAvatarURL(auth.user?.avatar_url);
-  const currentTenant = auth.tenants.find((tenant) => String(tenant.tenant_id) === auth.currentTenantId);
-  const isTenantAdmin = Boolean(currentTenant?.roles?.includes("TENANT_ADMIN"));
-  const isDataOwner = Boolean(currentTenant?.roles?.includes("DO"));
+  const currentTenant = auth.currentTenant ?? auth.tenants.find((tenant) => String(tenant.tenant_id) === auth.currentTenantId);
+  const tenantBranding = brandingForTenant(currentTenant, auth.isPlatformAdmin);
+  const tenantLogo = tenantLogoFailed ? undefined : tenantBranding.logoUrl;
+  const tenantDisplayName = currentTenant?.tenant_name ?? (auth.isPlatformAdmin ? "平台管理" : "未选择租户");
+  const tenantDisplayCode = currentTenant?.tenant_code ?? currentTenant?.tenantCode ?? (auth.isPlatformAdmin ? "PLATFORM" : "TENANT");
+  const currentRoleLabel = roleLabel(auth.user?.role, auth.tenantRoles);
   const sortedAccounts = useMemo(() => [...auth.cachedAccounts].sort((left, right) => {
     if (left.userId === auth.currentUserId) return -1;
     if (right.userId === auth.currentUserId) return 1;
     return right.lastLoginAt - left.lastLoginAt;
   }), [auth.cachedAccounts, auth.currentUserId]);
+
+  useEffect(() => {
+    window.localStorage.setItem("sidebar-collapsed", String(sidebarCollapsed));
+  }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    window.localStorage.setItem("sidebar-open-keys", JSON.stringify(openKeys));
+  }, [openKeys]);
+
+  useEffect(() => {
+    setTenantLogoFailed(false);
+  }, [tenantBranding.logoUrl]);
+
+  const selectedMenuKey = selectedKeyForPath(location.pathname);
+  const menuItems = useMemo<MenuProps["items"]>(() => {
+    const items: MenuProps["items"] = [
+      { key: "/profile", icon: <UserOutlined />, label: "当前用户" }
+    ];
+    if (auth.isPlatformAdmin) {
+      items.push({
+        key: "platform",
+        icon: <SafetyCertificateOutlined />,
+        label: "平台管理",
+        children: [
+          { key: "/platform", icon: <DashboardOutlined />, label: "平台控制台" },
+          { key: "/platform/tenants", icon: <ApartmentOutlined />, label: "租户列表" },
+          { key: "/platform/policies", icon: <SafetyCertificateOutlined />, label: "访问策略管理" }
+        ]
+      });
+    }
+    const policyChildren = [
+      auth.hasPermission("policy.write") ? { key: "/access-policies/builder", icon: <SafetyCertificateOutlined />, label: "访问策略构建" } : null,
+      auth.hasPermission("policy.read") ? { key: "/access-policies", icon: <SafetyCertificateOutlined />, label: "我的访问策略" } : null
+    ].filter(Boolean) as NonNullable<MenuProps["items"]>;
+    if (policyChildren.length > 0) {
+      items.push({
+        key: "policy",
+        icon: <SafetyCertificateOutlined />,
+        label: "访问策略",
+        children: policyChildren
+      });
+    }
+    const tenantChildren = [
+      auth.hasPermission("tenant.role.read") ? { key: "/tenant/roles", icon: <SafetyCertificateOutlined />, label: "角色管理" } : null,
+      auth.hasPermission("tenant.member.read") ? { key: "/tenant/members", icon: <UserOutlined />, label: "成员角色" } : null,
+      auth.hasPermission("tenant.org.read") ? { key: "/tenant/org-management", icon: <ApartmentOutlined />, label: "组织管理" } : null,
+      auth.hasPermission("policy.read") ? { key: "/tenant/access-policies", icon: <SafetyCertificateOutlined />, label: "访问策略" } : null
+    ].filter(Boolean) as NonNullable<MenuProps["items"]>;
+    if (tenantChildren.length > 0) {
+      items.push({
+        key: "tenant",
+        icon: <ApartmentOutlined />,
+        label: "租户管理",
+        children: tenantChildren
+      });
+    }
+    return items;
+  }, [auth]);
 
   function updateAccountMenuPosition() {
     const button = accountButtonRef.current;
@@ -98,9 +179,12 @@ export function AppLayout() {
     await auth.removeAccount(accountId);
   }
 
+  function onMenuClick({ key }: { key: string }) {
+    navigate(key);
+  }
+
   const accountMenu =
     accountMenuOpen &&
-    // 账号菜单宽于侧边栏，放在 sidebar 内部会被布局宽度或 overflow 裁剪；Portal + fixed 让弹层脱离侧边栏裁剪边界。
     createPortal(
       <AccountMenu
         accounts={sortedAccounts}
@@ -123,114 +207,130 @@ export function AppLayout() {
     );
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
+    <Layout className="app-shell antd-app-shell">
+      <Sider
+        className="antd-sidebar"
+        width={248}
+        collapsedWidth={72}
+        collapsed={sidebarCollapsed}
+        trigger={null}
+      >
         <div className="sidebar-brand">
-          <div className="brand-mark">CP</div>
-          <div>
-            <strong>CP-ABE</strong>
-            <span>加密文件共享</span>
+          <div className="sidebar-brand-main">
+            {tenantLogo ? (
+              <img
+                className="brand-mark brand-mark-image"
+                src={tenantLogo}
+                alt={`${tenantDisplayName} Logo`}
+                onError={() => setTenantLogoFailed(true)}
+              />
+            ) : (
+              <div className="brand-mark">{tenantDisplayCode.slice(0, 2).toUpperCase()}</div>
+            )}
+            {!sidebarCollapsed && (
+              <div className="sidebar-brand-copy">
+                <strong>{tenantDisplayName}</strong>
+                <span>{tenantDisplayCode} · CP-ABE</span>
+              </div>
+            )}
           </div>
+          <Tooltip title={sidebarCollapsed ? "展开侧边栏" : "折叠侧边栏"} placement="right">
+            <Button
+              className="sidebar-collapse-button"
+              icon={sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+              shape="circle"
+              size="small"
+              onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
+              aria-label={sidebarCollapsed ? "展开侧边栏" : "折叠侧边栏"}
+            />
+          </Tooltip>
         </div>
-        <nav className="sidebar-nav" aria-label="主导航">
-          <NavLink to="/profile" className={({ isActive }) => (isActive ? "nav-item nav-item-active" : "nav-item")}>
-            当前用户
-          </NavLink>
-          {auth.isPlatformAdmin && (
-            <>
-              <div className="nav-section-title">平台管理</div>
-              <NavLink end to="/platform" className={({ isActive }) => (isActive ? "nav-item nav-item-active" : "nav-item")}>
-                平台控制台
-              </NavLink>
-              <NavLink end to="/platform/tenants" className={({ isActive }) => (isActive ? "nav-item nav-item-active" : "nav-item")}>
-                租户列表
-              </NavLink>
-              <NavLink to="/platform/tenants/new" className={({ isActive }) => (isActive ? "nav-item nav-item-active" : "nav-item")}>
-                创建租户
-              </NavLink>
-              <NavLink to="/platform/policies" className={({ isActive }) => (isActive ? "nav-item nav-item-active" : "nav-item")}>
-                访问策略管理
-              </NavLink>
-            </>
-          )}
-          {isDataOwner && (
-            <>
-              <div className="nav-section-title">访问策略</div>
-              <NavLink to="/access-policies/builder" className={({ isActive }) => (isActive ? "nav-item nav-item-active" : "nav-item")}>
-                访问策略构建
-              </NavLink>
-              <NavLink end to="/access-policies" className={({ isActive }) => (isActive ? "nav-item nav-item-active" : "nav-item")}>
-                我的访问策略
-              </NavLink>
-            </>
-          )}
-          {isTenantAdmin && (
-            <>
-              <div className="nav-section-title">租户管理</div>
-              <NavLink to="/tenant/members" className={({ isActive }) => (isActive ? "nav-item nav-item-active" : "nav-item")}>
-                成员角色
-              </NavLink>
-              <NavLink to="/tenant/access-policies" className={({ isActive }) => (isActive ? "nav-item nav-item-active" : "nav-item")}>
-                访问策略查看
-              </NavLink>
-            </>
-          )}
-          <div className="nav-section-title">后续模块</div>
-          {/* 这些入口先作为产品路线预告展示，避免用户误以为认证模块就是完整系统边界。 */}
-          {upcomingModules.map((name) => (
-            <div className="nav-item nav-item-disabled" key={name} aria-disabled="true">
-              <span>{name}</span>
-              <em>即将支持</em>
-            </div>
-          ))}
-          <button className="nav-item nav-logout" type="button" onClick={() => void auth.logout()}>
-            退出当前账号
-          </button>
-        </nav>
+        <Menu
+          className="antd-sidebar-menu"
+          mode="inline"
+          inlineCollapsed={sidebarCollapsed}
+          items={menuItems}
+          selectedKeys={[selectedMenuKey]}
+          openKeys={sidebarCollapsed ? [] : openKeys}
+          onOpenChange={setOpenKeys}
+          onClick={onMenuClick}
+          expandIcon={({ isOpen }) => isOpen ? <DownOutlined className="menu-expand-icon menu-expand-icon-open" /> : <RightOutlined className="menu-expand-icon" />}
+        />
         <div className="sidebar-footer">
-          {import.meta.env.DEV && (
+          <div className="sidebar-tools">
+            {!sidebarCollapsed && <ThemeSwitcher compact />}
+          </div>
+          {import.meta.env.DEV && !sidebarCollapsed && (
             <div className="sidebar-meta">
               <span>后端 API</span>
               <strong>{API_BASE_URL}</strong>
             </div>
           )}
           <div className="sidebar-account-area">
-            <button className="sidebar-user" type="button" onClick={() => setAccountMenuOpen((open) => !open)} aria-expanded={accountMenuOpen} ref={accountButtonRef}>
-              {/* 头像依赖全局 user 状态；资料页上传成功后同步 auth.setUser，侧边栏才能立即刷新。 */}
-              {avatarURL ? (
-                <img src={avatarURL} alt="当前用户头像" />
-              ) : (
-                <div className="sidebar-avatar-fallback">{avatarInitial(auth.user?.nickname, auth.user?.email)}</div>
-              )}
-              <div>
-                <strong>{auth.user?.nickname ?? "未登录"}</strong>
-                <span>{roleLabel(auth.user?.role)}</span>
-              </div>
-              <span className="account-chevron">{accountMenuOpen ? "收起" : "切换"}</span>
-            </button>
+            <Tooltip title={sidebarCollapsed ? auth.user?.nickname ?? "未登录" : ""} placement="right">
+              <button className="sidebar-user" type="button" onClick={() => setAccountMenuOpen((open) => !open)} aria-expanded={accountMenuOpen} ref={accountButtonRef}>
+                {avatarURL ? (
+                  <img src={avatarURL} alt="当前用户头像" />
+                ) : (
+                  <div className="sidebar-avatar-fallback">{avatarInitial(auth.user?.nickname, auth.user?.email)}</div>
+                )}
+                {!sidebarCollapsed && (
+                  <>
+                    <div className="sidebar-user-copy">
+                      <strong>{auth.user?.nickname ?? "未登录"}</strong>
+                      <span>{currentRoleLabel}</span>
+                    </div>
+                    <span className="account-chevron">{accountMenuOpen ? "收起" : "切换"}</span>
+                  </>
+                )}
+              </button>
+            </Tooltip>
             {accountMenu}
           </div>
         </div>
-      </aside>
-      <section className="workspace">
-        <header className="topbar">
-          <div className="topbar-title">
-            <h1>欢迎使用 CP-ABE 加密文件共享系统</h1>
-            <p>支持数据拥有者上传加密文件，数据访问者访问授权文件</p>
-          </div>
-          <div className="topbar-actions">
-            <ThemeSwitcher compact />
-            <button className="secondary-action" type="button" onClick={() => void auth.logout()}>
-              退出当前账号
-            </button>
-          </div>
-        </header>
-        <main className="content">
-          <Outlet />
-        </main>
-      </section>
-    </div>
+      </Sider>
+      <Layout className="workspace">
+        <div className="workspace-brand-layer" aria-hidden="true" />
+        <Content className="content">
+          {auth.user?.must_change_password && (
+            <div className="password-change-banner">
+              <div>
+                <span>当前账号仍在使用初始密码，为保障安全，请尽快修改。</span>
+              </div>
+              <Button size="small" onClick={() => navigate("/profile")}>
+                修改密码
+              </Button>
+            </div>
+          )}
+          <AnimatePresence mode="wait">
+            <motion.div
+              className="route-page-frame"
+              key={location.pathname}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.18, ease: "easeOut" }}
+            >
+              <Outlet />
+            </motion.div>
+          </AnimatePresence>
+        </Content>
+      </Layout>
+    </Layout>
   );
+}
+
+function selectedKeyForPath(pathname: string) {
+  if (pathname === "/platform") return "/platform";
+  if (pathname.startsWith("/platform/tenants")) return "/platform/tenants";
+  if (pathname.startsWith("/platform/policies")) return "/platform/policies";
+  if (pathname.startsWith("/access-policies/builder")) return "/access-policies/builder";
+  if (pathname.startsWith("/access-policies")) return "/access-policies";
+  if (pathname.startsWith("/tenant/roles")) return "/tenant/roles";
+  if (pathname.startsWith("/tenant/members")) return "/tenant/members";
+  if (pathname.startsWith("/tenant/org-management")) return "/tenant/org-management";
+  if (pathname.startsWith("/tenant/access-policies")) return "/tenant/access-policies";
+  return pathname;
 }
 
 function AccountMenu({
@@ -264,9 +364,9 @@ function AccountMenu({
     <div className="account-menu" ref={menuRef} style={{ left: style.left, top: style.top }}>
       <div className="account-menu-header">
         <div className="account-menu-title">账号切换</div>
-        <button className="account-menu-close" onClick={onClose} type="button">
+        <Button size="small" onClick={onClose} type="text">
           收起
-        </button>
+        </Button>
       </div>
       {message && <div className="account-menu-alert">{message}</div>}
       <div className="account-list">
@@ -274,6 +374,7 @@ function AccountMenu({
           const accountAvatar = resolveAvatarURL(account.avatarUrl);
           const isCurrent = account.userId === currentUserId;
           const unavailable = !hasAccountSession(account.userId);
+          const statusText = account.status === "login_required" ? "需要重新登录" : unavailable ? "登录已过期" : roleLabel(account.role);
           return (
             <div className={`account-row${isCurrent ? " account-row-current" : ""}`} key={account.userId}>
               <button
@@ -289,31 +390,47 @@ function AccountMenu({
                 )}
                 <span>
                   <strong>{account.nickname}</strong>
-                  <small>{switchingId === account.userId ? "切换中..." : isCurrent ? "当前账号" : unavailable ? "登录已过期" : roleLabel(account.role)}</small>
+                  <small>{switchingId === account.userId ? "切换中..." : isCurrent ? "当前账号" : statusText}</small>
                 </span>
               </button>
-              <button className="account-remove" onClick={() => onRemoveAccount(account.userId)} type="button">
+              <Button size="small" type="text" danger onClick={() => onRemoveAccount(account.userId)}>
                 移除
-              </button>
+              </Button>
             </div>
           );
         })}
       </div>
       <div className="account-menu-actions">
-        <button className="secondary-action" type="button" onClick={onAddAccount}>
-          添加账号
-        </button>
-        <button className="secondary-action danger-action" type="button" onClick={onLogout}>
-          退出当前账号
-        </button>
+        <Button onClick={onAddAccount}>添加账号</Button>
+        <Button danger onClick={onLogout}>退出当前账号</Button>
       </div>
     </div>
   );
 }
 
-function roleLabel(role?: string) {
+function roleLabel(role?: string, tenantRoles?: TenantRole[]) {
+  const tenantLabels = sortTenantRolesForDisplay(tenantRoles ?? []).map(tenantRoleLabel).filter(Boolean);
+  if (tenantLabels.length > 0) return tenantLabels.join(" / ");
   if (role === "data_owner") return "数据拥有者";
   if (role === "data_user") return "数据访问者";
   if (role === "admin") return "系统管理员";
   return "请先登录";
+}
+
+function tenantRoleLabel(role: TenantRole) {
+  if (role === "TENANT_ADMIN") return "租户管理员";
+  if (role === "DO") return "数据拥有者";
+  if (role === "DU") return "数据访问者";
+  if (role === "PLATFORM_ADMIN") return "平台管理员";
+  return String(role || "");
+}
+
+function sortTenantRolesForDisplay(roles: TenantRole[]) {
+  const priority: Record<string, number> = {
+    TENANT_ADMIN: 0,
+    DO: 1,
+    DU: 2,
+    PLATFORM_ADMIN: 9
+  };
+  return [...roles].sort((left, right) => (priority[left] ?? 5) - (priority[right] ?? 5));
 }

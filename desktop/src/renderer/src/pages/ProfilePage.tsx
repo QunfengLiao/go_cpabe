@@ -3,7 +3,7 @@ import { getCurrentUser, updateCurrentUser, uploadAvatar } from "../api/user";
 import { ApiError } from "../api/request";
 import { useAuth } from "../auth/AuthContext";
 import { Alert } from "../components/Alert";
-import type { User } from "../types";
+import type { TenantRole, User } from "../types";
 import { avatarInitial, resolveAvatarURL } from "../utils/avatar";
 
 const MAX_AVATAR_SIZE = 2 * 1024 * 1024;
@@ -50,7 +50,7 @@ export function ProfilePage() {
     setNickname(auth.user?.nickname ?? "");
     setBio(auth.user?.bio ?? "");
     setBirthday(auth.user?.birthday ?? "");
-    void loadProfile();
+    setLoading(false);
   }, [auth.currentUserId]);
 
   async function onSave(event: FormEvent) {
@@ -112,7 +112,8 @@ export function ProfilePage() {
 
   const avatarURL = resolveAvatarURL(user?.avatar_url ?? "");
   const showAvatarImage = Boolean(avatarURL && !avatarFailed);
-  const roleInfo = roleCapability(user?.role);
+  const currentRoleLabel = roleLabel(user?.role, auth.tenantRoles);
+  const roleInfo = roleCapability(user?.role, auth.tenantRoles);
 
   useEffect(() => {
     setAvatarFailed(false);
@@ -155,7 +156,7 @@ export function ProfilePage() {
                 <h3>{user?.nickname ?? "未命名用户"}</h3>
                 <p>{user?.email}</p>
                 <div className="profile-tag-row">
-                  <span className="profile-role-pill"><Icon name="shield" />{roleLabel(user?.role)}</span>
+                  <span className="profile-role-pill"><Icon name="shield" />{currentRoleLabel}</span>
                   <span className="profile-status-pill"><Icon name="check" />{statusLabel(user?.status)}</span>
                 </div>
                 {uploading && <span className="avatar-uploading">头像上传中...</span>}
@@ -170,7 +171,7 @@ export function ProfilePage() {
             <dl className="profile-details profile-details-card">
               <Detail icon="mail" label="邮箱" value={user?.email} />
               <Detail icon="user" label="昵称" value={user?.nickname} />
-              <Detail icon="shield" label="角色" value={roleLabel(user?.role)} />
+              <Detail icon="shield" label="角色" value={currentRoleLabel} />
               <Detail icon="file" label="简介" value={user?.bio || "未填写"} />
             </dl>
             <div className="profile-role-card">
@@ -226,11 +227,31 @@ function SummaryItem({ icon, label, value }: { icon: IconName; label: string; va
   );
 }
 
-function roleLabel(role?: string) {
+function roleLabel(role?: string, tenantRoles?: TenantRole[]) {
+  const tenantLabels = sortTenantRolesForDisplay(tenantRoles ?? []).map(tenantRoleLabel).filter(Boolean);
+  if (tenantLabels.length > 0) return tenantLabels.join(" / ");
   if (role === "data_owner") return "数据拥有者";
   if (role === "data_user") return "数据访问者";
   if (role === "admin") return "系统管理员";
   return "-";
+}
+
+function tenantRoleLabel(role: TenantRole) {
+  if (role === "TENANT_ADMIN") return "租户管理员";
+  if (role === "DO") return "数据拥有者";
+  if (role === "DU") return "数据访问者";
+  if (role === "PLATFORM_ADMIN") return "平台管理员";
+  return String(role || "");
+}
+
+function sortTenantRolesForDisplay(roles: TenantRole[]) {
+  const priority: Record<string, number> = {
+    TENANT_ADMIN: 0,
+    DO: 1,
+    DU: 2,
+    PLATFORM_ADMIN: 9
+  };
+  return [...roles].sort((left, right) => (priority[left] ?? 5) - (priority[right] ?? 5));
 }
 
 function statusLabel(status?: string) {
@@ -244,7 +265,25 @@ function formatDate(value?: string) {
   return new Date(value).toLocaleString();
 }
 
-function roleCapability(role?: string) {
+function roleCapability(role?: string, tenantRoles?: TenantRole[]) {
+  if (tenantRoles?.includes("TENANT_ADMIN")) {
+    return {
+      title: "当前身份：租户管理员",
+      description: "可以在当前租户内管理成员、组织、角色和策略等治理配置。"
+    };
+  }
+  if (tenantRoles?.includes("DO")) {
+    return {
+      title: "当前身份：数据拥有者",
+      description: "可以上传文件、设置访问策略，并加密共享数据。"
+    };
+  }
+  if (tenantRoles?.includes("DU")) {
+    return {
+      title: "当前身份：数据访问者",
+      description: "可以查看授权文件、申请密钥，并在属性满足策略时解密访问数据。"
+    };
+  }
   if (role === "data_owner") {
     return {
       title: "当前身份：数据拥有者",

@@ -1,13 +1,14 @@
-import type { SwitchTenantData, TenantBusinessRole, TenantMember, TenantSummary } from "../types";
+import type { SwitchTenantData, TenantBusinessRole, TenantContextData, TenantMember } from "../types";
 import { request } from "./request";
 
-export function listMyTenants(): Promise<{ tenants: TenantSummary[]; current_tenant_id?: number | null }> {
-  return request("/me/tenants");
+export function listMyTenants(): Promise<TenantContextData> {
+  return request("/me/context");
 }
 
 export function switchTenant(tenantId: number): Promise<SwitchTenantData> {
   return request("/me/switch-tenant", {
     method: "POST",
+    skipRefresh: true,
     body: JSON.stringify({ tenant_id: tenantId })
   });
 }
