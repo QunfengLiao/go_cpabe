@@ -16,11 +16,23 @@ import (
 type PolicyService struct {
 	policies repository.PolicyRepository
 	tenants  repository.TenantRepository
+	orgs     repository.OrgAttributeRepository
+	authz    *AuthorizationService
 }
 
 // NewPolicyService 创建访问策略服务，依赖策略仓储和租户仓储完成数据读写与权限判断。
 func NewPolicyService(policies repository.PolicyRepository, tenants repository.TenantRepository) *PolicyService {
 	return &PolicyService{policies: policies, tenants: tenants}
+}
+
+// SetOrgAttributeRepository 注入租户级属性仓储，让 DATA_OWNER 策略保存使用真实租户属性校验。
+func (s *PolicyService) SetOrgAttributeRepository(orgs repository.OrgAttributeRepository) {
+	s.orgs = orgs
+}
+
+// SetAuthorizationService 注入统一授权服务，策略 Service 仍保留 owner 和租户归属等业务边界。
+func (s *PolicyService) SetAuthorizationService(authz *AuthorizationService) {
+	s.authz = authz
 }
 
 // PolicyAttributeInput 表示平台管理员创建或更新属性字典时允许提交的字段。
@@ -217,24 +229,24 @@ func (s *PolicyService) DeleteTemplate(ctx context.Context, id uint64) error {
 	return nil
 }
 
-// ListAccessPolicies 根据调用者角色返回 DATA_OWNER 自己策略或 TENANT_ADMIN 本租户策略。
+// ListAccessPolicies 使用 policy.read 授权读取当前租户策略列表，租户边界仍由仓储查询保证。
 func (s *PolicyService) ListAccessPolicies(ctx context.Context, actor PolicyActor, status domain.PolicyStatus, keyword string) ([]domain.AccessPolicy, error) {
-	if !s.canReadTenantPolicies(actor) {
+	if !s.hasTenantPermission(ctx, actor, "policy.read") {
 		return nil, response.ErrAccessPolicyForbidden
 	}
 	input := repository.ListAccessPoliciesInput{TenantID: actor.TenantID, Status: status, Keyword: keyword}
-	if hasRole(actor.Roles, domain.RoleDO) {
+	if s.authz == nil && hasRole(actor.Roles, domain.RoleDO) && !hasRole(actor.Roles, domain.RoleTenantAdmin) {
 		input.OwnerID = actor.UserID
 	}
 	return s.policies.ListAccessPolicies(ctx, input)
 }
 
-// CreateAccessPolicy 保存 DATA_OWNER 具体访问策略；tenant_id 和 owner_id 只来自后端上下文。
+// CreateAccessPolicy 保存当前用户创建的访问策略；tenant_id 和 owner_id 只来自后端上下文。
 func (s *PolicyService) CreateAccessPolicy(ctx context.Context, actor PolicyActor, input AccessPolicyInput) (domain.AccessPolicy, error) {
-	if !hasRole(actor.Roles, domain.RoleDO) {
+	if !s.hasTenantPermission(ctx, actor, "policy.write") {
 		return domain.AccessPolicy{}, response.ErrAccessPolicyForbidden
 	}
-	policy, err := s.buildAccessPolicy(ctx, input)
+	policy, err := s.buildAccessPolicy(ctx, actor.TenantID, input)
 	if err != nil {
 		return domain.AccessPolicy{}, err
 	}
@@ -246,27 +258,24 @@ func (s *PolicyService) CreateAccessPolicy(ctx context.Context, actor PolicyActo
 	return policy, nil
 }
 
-// AccessPolicyDetail 按角色范围返回策略详情，TENANT_ADMIN 只读，DATA_OWNER 只能看自己的策略。
+// AccessPolicyDetail 使用 policy.read 授权读取当前租户内策略详情。
 func (s *PolicyService) AccessPolicyDetail(ctx context.Context, actor PolicyActor, policyID uint64) (domain.AccessPolicy, error) {
-	if hasRole(actor.Roles, domain.RoleTenantAdmin) {
-		return s.findTenantPolicy(ctx, actor.TenantID, policyID)
-	}
-	if hasRole(actor.Roles, domain.RoleDO) {
-		return s.findOwnerPolicy(ctx, actor.TenantID, actor.UserID, policyID)
-	}
-	return domain.AccessPolicy{}, response.ErrAccessPolicyForbidden
-}
-
-// UpdateAccessPolicy 只允许 DATA_OWNER 更新自己创建的访问策略。
-func (s *PolicyService) UpdateAccessPolicy(ctx context.Context, actor PolicyActor, policyID uint64, input AccessPolicyInput) (domain.AccessPolicy, error) {
-	if !hasRole(actor.Roles, domain.RoleDO) {
+	if !s.hasTenantPermission(ctx, actor, "policy.read") {
 		return domain.AccessPolicy{}, response.ErrAccessPolicyForbidden
 	}
-	existing, err := s.findOwnerPolicy(ctx, actor.TenantID, actor.UserID, policyID)
+	return s.findTenantPolicy(ctx, actor.TenantID, policyID)
+}
+
+// UpdateAccessPolicy 使用 policy.write 授权更新当前租户策略，并保留策略租户归属校验。
+func (s *PolicyService) UpdateAccessPolicy(ctx context.Context, actor PolicyActor, policyID uint64, input AccessPolicyInput) (domain.AccessPolicy, error) {
+	if !s.hasTenantPermission(ctx, actor, "policy.write") {
+		return domain.AccessPolicy{}, response.ErrAccessPolicyForbidden
+	}
+	existing, err := s.findTenantPolicy(ctx, actor.TenantID, policyID)
 	if err != nil {
 		return domain.AccessPolicy{}, err
 	}
-	next, err := s.buildAccessPolicy(ctx, input)
+	next, err := s.buildAccessPolicy(ctx, actor.TenantID, input)
 	if err != nil {
 		return domain.AccessPolicy{}, err
 	}
@@ -281,12 +290,16 @@ func (s *PolicyService) UpdateAccessPolicy(ctx context.Context, actor PolicyActo
 	return existing, nil
 }
 
-// DeleteAccessPolicy 只允许 DATA_OWNER 删除自己创建的策略，并使用 owner 范围防止越权。
+// DeleteAccessPolicy 使用 policy.write 授权删除当前租户策略，并通过租户范围查询防止跨租户越权。
 func (s *PolicyService) DeleteAccessPolicy(ctx context.Context, actor PolicyActor, policyID uint64) error {
-	if !hasRole(actor.Roles, domain.RoleDO) {
+	if !s.hasTenantPermission(ctx, actor, "policy.write") {
 		return response.ErrAccessPolicyForbidden
 	}
-	if err := s.policies.DeleteAccessPolicyForOwner(ctx, actor.TenantID, actor.UserID, policyID); err != nil {
+	policy, err := s.findTenantPolicy(ctx, actor.TenantID, policyID)
+	if err != nil {
+		return err
+	}
+	if err := s.policies.DeleteAccessPolicyForOwner(ctx, actor.TenantID, policy.OwnerID, policyID); err != nil {
 		if errors.Is(err, repository.ErrAccessPolicyNotFound) {
 			return response.ErrAccessPolicyNotFound
 		}
@@ -329,7 +342,7 @@ func (s *PolicyService) buildTemplate(ctx context.Context, input PolicyTemplateI
 	if name == "" || !status.Valid() {
 		return domain.PolicyTemplate{}, response.ErrPolicyTemplateInvalid
 	}
-	_, canonical, expr, err := s.validateTreeJSON(ctx, input.PolicyTreeJSON)
+	_, canonical, expr, err := s.validateTreeJSON(ctx, 0, input.PolicyTreeJSON)
 	if err != nil {
 		return domain.PolicyTemplate{}, err
 	}
@@ -343,13 +356,13 @@ func (s *PolicyService) buildTemplate(ctx context.Context, input PolicyTemplateI
 }
 
 // buildAccessPolicy 校验 DATA_OWNER 策略输入并生成标准访问树 JSON 和表达式。
-func (s *PolicyService) buildAccessPolicy(ctx context.Context, input AccessPolicyInput) (domain.AccessPolicy, error) {
+func (s *PolicyService) buildAccessPolicy(ctx context.Context, tenantID uint64, input AccessPolicyInput) (domain.AccessPolicy, error) {
 	name := strings.TrimSpace(input.Name)
 	status := normalizePolicyStatus(input.Status)
 	if name == "" || !status.Valid() {
 		return domain.AccessPolicy{}, response.ErrBadRequest
 	}
-	_, canonical, expr, err := s.validateTreeJSON(ctx, input.PolicyTreeJSON)
+	_, canonical, expr, err := s.validateTreeJSON(ctx, tenantID, input.PolicyTreeJSON)
 	if err != nil {
 		return domain.AccessPolicy{}, err
 	}
@@ -363,12 +376,12 @@ func (s *PolicyService) buildAccessPolicy(ctx context.Context, input AccessPolic
 }
 
 // validateTreeJSON 使用当前启用属性字典校验访问树，并返回标准 JSON 和表达式。
-func (s *PolicyService) validateTreeJSON(ctx context.Context, raw json.RawMessage) (policytree.Node, []byte, string, error) {
+func (s *PolicyService) validateTreeJSON(ctx context.Context, tenantID uint64, raw json.RawMessage) (policytree.Node, []byte, string, error) {
 	tree, err := policytree.Parse(raw)
 	if err != nil {
 		return policytree.Node{}, nil, "", response.ErrAccessPolicyTreeInvalid
 	}
-	attrs, err := s.enabledAttributeMetas(ctx)
+	attrs, err := s.enabledAttributeMetas(ctx, tenantID)
 	if err != nil {
 		return policytree.Node{}, nil, "", err
 	}
@@ -383,7 +396,35 @@ func (s *PolicyService) validateTreeJSON(ctx context.Context, raw json.RawMessag
 }
 
 // enabledAttributeMetas 将平台属性字典转换为访问树校验所需的只读元数据。
-func (s *PolicyService) enabledAttributeMetas(ctx context.Context) (map[string]policytree.AttributeMeta, error) {
+func (s *PolicyService) enabledAttributeMetas(ctx context.Context, tenantID uint64) (map[string]policytree.AttributeMeta, error) {
+	if tenantID != 0 && s.orgs != nil {
+		attrs, err := s.orgs.ListTenantAttributes(ctx, tenantID, true)
+		if err != nil {
+			return nil, err
+		}
+		ids := make([]uint64, 0, len(attrs))
+		for _, attr := range attrs {
+			ids = append(ids, attr.ID)
+		}
+		values, err := s.orgs.ListTenantAttributeValues(ctx, tenantID, ids, true)
+		if err != nil {
+			return nil, err
+		}
+		valuesByAttr := map[uint64][]string{}
+		valueMetasByAttr := map[uint64]map[string]policytree.AttributeValueMeta{}
+		for _, value := range values {
+			valuesByAttr[value.AttributeID] = append(valuesByAttr[value.AttributeID], value.ValueCode)
+			if valueMetasByAttr[value.AttributeID] == nil {
+				valueMetasByAttr[value.AttributeID] = map[string]policytree.AttributeValueMeta{}
+			}
+			valueMetasByAttr[value.AttributeID][value.ValueCode] = policytree.AttributeValueMeta{ID: value.ID, Code: value.ValueCode, Path: value.ValuePath}
+		}
+		metas := make(map[string]policytree.AttributeMeta, len(attrs))
+		for _, attr := range attrs {
+			metas[attr.AttrCode] = policytree.AttributeMeta{Code: attr.AttrCode, Type: attr.AttrType, Values: valuesByAttr[attr.ID], ValuesByCode: valueMetasByAttr[attr.ID], Status: attr.Status}
+		}
+		return metas, nil
+	}
 	attrs, err := s.policies.ListAttributes(ctx, true)
 	if err != nil {
 		return nil, err
@@ -423,9 +464,20 @@ func (s *PolicyService) findOwnerPolicy(ctx context.Context, tenantID, ownerID, 
 	return *policy, nil
 }
 
-// canReadTenantPolicies 判断调用方是否可读取当前租户策略列表。
-func (s *PolicyService) canReadTenantPolicies(actor PolicyActor) bool {
-	return hasRole(actor.Roles, domain.RoleDO) || hasRole(actor.Roles, domain.RoleTenantAdmin)
+// hasTenantPermission 使用数据库 RBAC 判断功能权限；测试或迁移未注入授权服务时回退到旧角色语义。
+func (s *PolicyService) hasTenantPermission(ctx context.Context, actor PolicyActor, code string) bool {
+	if s != nil && s.authz != nil {
+		ok, err := s.authz.HasTenantPermission(ctx, actor.UserID, actor.TenantID, code)
+		return err == nil && ok
+	}
+	switch code {
+	case "policy.read":
+		return hasRole(actor.Roles, domain.RoleDO) || hasRole(actor.Roles, domain.RoleTenantAdmin)
+	case "policy.write":
+		return hasRole(actor.Roles, domain.RoleDO)
+	default:
+		return false
+	}
 }
 
 // hasRole 判断角色列表是否包含指定角色。

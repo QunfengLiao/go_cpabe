@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -68,6 +69,38 @@ func (r *testRepo) ListAll(_ context.Context) ([]domain.User, error) {
 		users = append(users, *user)
 	}
 	return users, nil
+}
+
+// SearchUsers 在 handler 测试仓储中搜索已有用户，覆盖平台后台按账号接入成员的真实交互。
+func (r *testRepo) SearchUsers(_ context.Context, query string, limit int) ([]domain.User, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	keyword := strings.ToLower(strings.TrimSpace(query))
+	if keyword == "" {
+		return []domain.User{}, nil
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	users := []domain.User{}
+	for _, user := range r.byID {
+		if !containsTestUserKeyword(*user, keyword) {
+			continue
+		}
+		users = append(users, *user)
+		if len(users) >= limit {
+			break
+		}
+	}
+	return users, nil
+}
+
+// containsTestUserKeyword 判断 handler 测试用户是否命中平台搜索关键字。
+func containsTestUserKeyword(user domain.User, keyword string) bool {
+	return strings.Contains(strings.ToLower(user.Username), keyword) ||
+		strings.Contains(strings.ToLower(user.Email), keyword) ||
+		strings.Contains(strings.ToLower(user.Phone), keyword) ||
+		strings.Contains(strings.ToLower(user.Nickname), keyword)
 }
 
 // CountUsers 返回 handler 测试仓储中的用户数量，避免统计场景依赖完整用户列表。
@@ -133,6 +166,19 @@ func (testStorage) SaveAvatar(_ context.Context, userID uint64, filename string,
 
 // Delete 是测试存储删除实现，当前测试只验证接口契约。
 func (testStorage) Delete(_ context.Context, _ string) error { return nil }
+
+// permissionAuthorizerStub 让既有 handler 测试专注原有业务断言；RBAC 中间件自身由独立测试覆盖。
+type permissionAuthorizerStub struct{}
+
+// RequireTenantPermission 在 handler 测试中默认放行租户权限，避免旧用例被新中间件实现细节污染。
+func (permissionAuthorizerStub) RequireTenantPermission(_ context.Context, _ uint64, _ uint64, _ string) error {
+	return nil
+}
+
+// RequirePlatformPermission 在 handler 测试中默认放行平台权限，平台身份校验仍由 PlatformAdminRequired 覆盖。
+func (permissionAuthorizerStub) RequirePlatformPermission(_ context.Context, _ uint64, _ string) error {
+	return nil
+}
 
 // testTenantRepo 是 handler 集成测试使用的线程安全内存租户仓储。
 type testTenantRepo struct {
@@ -256,6 +302,17 @@ func (r *testTenantRepo) EnsureTenant(ctx context.Context, tenant *domain.Tenant
 	return tenant, nil
 }
 
+// EnsureTenants 在 handler 测试仓储中批量确保租户存在。
+func (r *testTenantRepo) EnsureTenants(ctx context.Context, tenants []domain.Tenant) error {
+	for i := range tenants {
+		tenant := tenants[i]
+		if _, err := r.EnsureTenant(ctx, &tenant); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // EnsureTenantUser 在 handler 测试仓储中幂等写入租户成员关系。
 func (r *testTenantRepo) EnsureTenantUser(_ context.Context, tenantID uint64, userID uint64, status domain.TenantUserStatus) error {
 	r.mu.Lock()
@@ -265,8 +322,19 @@ func (r *testTenantRepo) EnsureTenantUser(_ context.Context, tenantID uint64, us
 		member.Status = status
 		return nil
 	}
-	r.members[key] = &domain.TenantUser{ID: r.nextMember, TenantID: tenantID, UserID: userID, Status: status}
+	now := time.Now().UTC()
+	r.members[key] = &domain.TenantUser{ID: r.nextMember, TenantID: tenantID, UserID: userID, Status: status, CreatedAt: now, UpdatedAt: now}
 	r.nextMember++
+	return nil
+}
+
+// EnsureTenantUsers 在 handler 测试仓储中批量写入租户成员。
+func (r *testTenantRepo) EnsureTenantUsers(ctx context.Context, members []domain.TenantUser) error {
+	for _, member := range members {
+		if err := r.EnsureTenantUser(ctx, member.TenantID, member.UserID, member.Status); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -319,7 +387,7 @@ func (r *testTenantRepo) ListTenantUsers(_ context.Context, tenantID uint64) ([]
 			continue
 		}
 		roles := r.roleCodesByUserTenantLocked(member.UserID, tenantID)
-		records = append(records, repository.TenantMemberRecord{UserID: member.UserID, MemberStatus: member.Status, Roles: roles})
+		records = append(records, repository.TenantMemberRecord{UserID: member.UserID, MemberStatus: member.Status, Roles: roles, JoinedAt: member.CreatedAt})
 	}
 	return records, nil
 }
@@ -377,6 +445,17 @@ func (r *testTenantRepo) EnsureRole(_ context.Context, role *domain.Role) (*doma
 	return role, nil
 }
 
+// EnsureRoles 在 handler 测试仓储中批量确保角色定义存在。
+func (r *testTenantRepo) EnsureRoles(ctx context.Context, roles []domain.Role) error {
+	for i := range roles {
+		role := roles[i]
+		if _, err := r.EnsureRole(ctx, &role); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // FindRoleByCode 在 handler 测试仓储中按角色编码查找角色。
 func (r *testTenantRepo) FindRoleByCode(_ context.Context, code domain.RoleCode) (*domain.Role, error) {
 	r.mu.Lock()
@@ -406,6 +485,17 @@ func (r *testTenantRepo) EnsureUserRole(_ context.Context, tenantID *uint64, use
 	return nil
 }
 
+// EnsureUserRoleAssignments 在 handler 测试仓储中批量写入角色授权。
+func (r *testTenantRepo) EnsureUserRoleAssignments(_ context.Context, assignments []domain.UserRoleAssignment) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, assignment := range assignments {
+		key := tenantRoleKey(assignment.TenantID, assignment.UserID, assignment.RoleID)
+		r.assignments[key] = &domain.UserRoleAssignment{TenantID: assignment.TenantID, UserID: assignment.UserID, RoleID: assignment.RoleID}
+	}
+	return nil
+}
+
 // RemoveUserRole 在 handler 测试仓储中删除用户角色授权。
 func (r *testTenantRepo) RemoveUserRole(_ context.Context, tenantID *uint64, userID uint64, roleCode domain.RoleCode) error {
 	r.mu.Lock()
@@ -418,7 +508,7 @@ func (r *testTenantRepo) RemoveUserRole(_ context.Context, tenantID *uint64, use
 	return nil
 }
 
-// ReplaceTenantBusinessRole 在 handler 测试仓储中模拟普通业务角色的事务替换效果。
+// ReplaceTenantBusinessRole 在 handler 测试仓储中模拟旧接口的兼容追加行为，避免再次制造 DO/DU 互斥。
 func (r *testTenantRepo) ReplaceTenantBusinessRole(_ context.Context, tenantID uint64, userID uint64, roleCode domain.RoleCode) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -426,12 +516,7 @@ func (r *testTenantRepo) ReplaceTenantBusinessRole(_ context.Context, tenantID u
 	if !ok {
 		return repository.ErrRoleNotFound
 	}
-	for _, code := range []domain.RoleCode{domain.RoleDO, domain.RoleDU} {
-		if id, ok := r.roleCodes[code]; ok {
-			delete(r.assignments, tenantRoleKey(&tenantID, userID, id))
-		}
-	}
-	r.assignments[tenantRoleKey(&tenantID, userID, roleID)] = &domain.UserRoleAssignment{ID: r.nextAssign, TenantID: &tenantID, UserID: userID, RoleID: roleID}
+	r.assignments[tenantRoleKey(&tenantID, userID, roleID)] = &domain.UserRoleAssignment{ID: r.nextAssign, TenantID: &tenantID, UserID: userID, RoleID: roleID, AssignmentSource: domain.AssignmentSourceManual, Status: domain.UserRoleStatusActive}
 	r.nextAssign++
 	return nil
 }
@@ -456,6 +541,23 @@ func (r *testTenantRepo) ListPlatformRoleCodes(_ context.Context, userID uint64)
 		}
 	}
 	return roles, nil
+}
+
+// ListUserIDsByPlatformRole 返回 handler 测试仓储中拥有指定平台角色的用户 ID 集合。
+func (r *testTenantRepo) ListUserIDsByPlatformRole(_ context.Context, roleCode domain.RoleCode) (map[uint64]struct{}, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	roleID, ok := r.roleCodes[roleCode]
+	if !ok {
+		return map[uint64]struct{}{}, nil
+	}
+	result := map[uint64]struct{}{}
+	for _, assignment := range r.assignments {
+		if assignment.TenantID == nil && assignment.RoleID == roleID {
+			result[assignment.UserID] = struct{}{}
+		}
+	}
+	return result, nil
 }
 
 // HasRole 判断 handler 测试仓储中用户是否拥有指定角色。
@@ -545,6 +647,7 @@ func newTestApp() testApp {
 		PlatformRoleService:       platformRoleSvc,
 		PlatformDashboardService:  platformDashboardSvc,
 		PolicyService:             policySvc,
+		AuthorizationService:      permissionAuthorizerStub{},
 		PlatformRoleResolver:      tenantRepo,
 		AuthManager:               manager,
 		MaxAvatarSize:             2 * 1024 * 1024,

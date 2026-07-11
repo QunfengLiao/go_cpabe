@@ -90,6 +90,80 @@ func TestPlatformTenantUsersAndAdmins(t *testing.T) {
 	}
 }
 
+// TestPlatformSearchUsersForTenantAccess 验证平台管理员能按账号、邮箱或手机号搜索已有用户用于租户接入。
+func TestPlatformSearchUsersForTenantAccess(t *testing.T) {
+	app := newTestApp()
+	platformAccess := createPlatformAdminAndLogin(t, app)
+	hash, err := auth.HashPassword("Passw0rd!")
+	if err != nil {
+		t.Fatalf("hash user password: %v", err)
+	}
+	user := &domain.User{
+		Username:     "alice.scnu",
+		Email:        "alice.scnu@example.com",
+		Phone:        "13900000000",
+		Nickname:     "Alice",
+		PasswordHash: hash,
+		Role:         domain.RoleDataUser,
+		Status:       domain.StatusActive,
+	}
+	if err := app.repo.Create(nil, user); err != nil {
+		t.Fatalf("create searchable user: %v", err)
+	}
+
+	search := performJSON(app.router, http.MethodGet, "/api/v1/platform/users/search?q=1390000", nil, platformAccess)
+	if search.Code != http.StatusOK || !bytesContains(search.Body.String(), "alice.scnu") || !bytesContains(search.Body.String(), "13900000000") {
+		t.Fatalf("search status=%d body=%s", search.Code, search.Body.String())
+	}
+}
+
+// TestPlatformCreateTenantAdminAccount 验证平台管理员可以代建租户管理员账号，并且新账号必须首次改密。
+func TestPlatformCreateTenantAdminAccount(t *testing.T) {
+	app := newTestApp()
+	platformAccess := createPlatformAdminAndLogin(t, app)
+
+	created := performJSON(app.router, http.MethodPost, "/api/v1/platform/tenants/2/admins", map[string]any{
+		"username":    "sangfor_admin",
+		"displayName": "深信服租户管理员",
+		"email":       "sangfor_admin@example.com",
+		"phone":       "13800000000",
+	}, platformAccess)
+	if created.Code != http.StatusOK || !bytesContains(created.Body.String(), "TENANT_ADMIN") || !bytesContains(created.Body.String(), "created_user") {
+		t.Fatalf("create tenant admin status=%d body=%s", created.Code, created.Body.String())
+	}
+
+	user, err := app.repo.FindByEmail(nil, "sangfor_admin@example.com")
+	if err != nil {
+		t.Fatalf("find created admin: %v", err)
+	}
+	if user.PasswordHash == "" || user.PasswordHash == "lqf999.." {
+		t.Fatalf("password must be bcrypt hash, got %q", user.PasswordHash)
+	}
+	if !user.MustChangePassword {
+		t.Fatalf("created tenant admin should require password change")
+	}
+	data := parseData(t, created)
+	temporaryPassword, ok := data["temporary_password"].(string)
+	if !ok || temporaryPassword != "lqf999.." {
+		t.Fatalf("temporary password should use default initial password, got %+v", data["temporary_password"])
+	}
+	tenantID := uint64(2)
+	if ok, err := app.tenantRepo.HasRole(nil, user.ID, &tenantID, domain.RoleTenantAdmin); err != nil || !ok {
+		t.Fatalf("tenant admin role missing ok=%v err=%v", ok, err)
+	}
+
+	login := performJSON(app.router, http.MethodPost, "/api/v1/auth/login", map[string]any{
+		"email": "sangfor_admin@example.com", "password": "lqf999..",
+	}, "")
+	if login.Code != http.StatusOK || !bytesContains(login.Body.String(), "TENANT_ADMIN") || !bytesContains(login.Body.String(), "must_change_password") {
+		t.Fatalf("login status=%d body=%s", login.Code, login.Body.String())
+	}
+	loginData := parseData(t, login)
+	if loginData["current_tenant_id"] == nil {
+		t.Fatalf("missing tenant context: %+v", loginData)
+	}
+}
+
 // createPlatformAdminAndLogin 创建平台管理员测试用户并返回登录 access token。
 func createPlatformAdminAndLogin(t *testing.T, app testApp) string {
 	t.Helper()

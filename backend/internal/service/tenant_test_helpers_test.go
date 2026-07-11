@@ -133,6 +133,17 @@ func (r *memoryTenantRepo) EnsureTenant(ctx context.Context, tenant *domain.Tena
 	return tenant, nil
 }
 
+// EnsureTenants 在测试仓储中批量确保租户存在，保持与 Gorm 仓储相同的 DoNothing 语义。
+func (r *memoryTenantRepo) EnsureTenants(ctx context.Context, tenants []domain.Tenant) error {
+	for i := range tenants {
+		tenant := tenants[i]
+		if _, err := r.EnsureTenant(ctx, &tenant); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // EnsureTenantUser 在测试仓储中幂等写入或恢复租户成员关系。
 func (r *memoryTenantRepo) EnsureTenantUser(_ context.Context, tenantID uint64, userID uint64, status domain.TenantUserStatus) error {
 	r.mu.Lock()
@@ -142,8 +153,19 @@ func (r *memoryTenantRepo) EnsureTenantUser(_ context.Context, tenantID uint64, 
 		member.Status = status
 		return nil
 	}
-	r.members[key] = &domain.TenantUser{ID: r.nextMember, TenantID: tenantID, UserID: userID, Status: status}
+	now := time.Now().UTC()
+	r.members[key] = &domain.TenantUser{ID: r.nextMember, TenantID: tenantID, UserID: userID, Status: status, CreatedAt: now, UpdatedAt: now}
 	r.nextMember++
+	return nil
+}
+
+// EnsureTenantUsers 在测试仓储中批量写入租户成员，已存在记录不重复创建。
+func (r *memoryTenantRepo) EnsureTenantUsers(ctx context.Context, members []domain.TenantUser) error {
+	for _, member := range members {
+		if err := r.EnsureTenantUser(ctx, member.TenantID, member.UserID, member.Status); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -193,7 +215,7 @@ func (r *memoryTenantRepo) ListTenantUsers(_ context.Context, tenantID uint64) (
 	records := []repository.TenantMemberRecord{}
 	for _, member := range r.members {
 		if member.TenantID == tenantID {
-			records = append(records, repository.TenantMemberRecord{UserID: member.UserID, MemberStatus: member.Status, Roles: r.roleCodesByUserTenantLocked(member.UserID, tenantID)})
+			records = append(records, repository.TenantMemberRecord{UserID: member.UserID, MemberStatus: member.Status, Roles: r.roleCodesByUserTenantLocked(member.UserID, tenantID), JoinedAt: member.CreatedAt})
 		}
 	}
 	return records, nil
@@ -252,6 +274,17 @@ func (r *memoryTenantRepo) EnsureRole(_ context.Context, role *domain.Role) (*do
 	return role, nil
 }
 
+// EnsureRoles 在测试仓储中批量确保角色定义存在。
+func (r *memoryTenantRepo) EnsureRoles(ctx context.Context, roles []domain.Role) error {
+	for i := range roles {
+		role := roles[i]
+		if _, err := r.EnsureRole(ctx, &role); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // FindRoleByCode 在测试仓储中按角色编码查找角色定义。
 func (r *memoryTenantRepo) FindRoleByCode(_ context.Context, code domain.RoleCode) (*domain.Role, error) {
 	r.mu.Lock()
@@ -281,6 +314,17 @@ func (r *memoryTenantRepo) EnsureUserRole(_ context.Context, tenantID *uint64, u
 	return nil
 }
 
+// EnsureUserRoleAssignments 在测试仓储中批量写入角色授权，供批量 seed 测试使用。
+func (r *memoryTenantRepo) EnsureUserRoleAssignments(_ context.Context, assignments []domain.UserRoleAssignment) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, assignment := range assignments {
+		key := memoryTenantRoleKey(assignment.TenantID, assignment.UserID, assignment.RoleID)
+		r.assignments[key] = &domain.UserRoleAssignment{TenantID: assignment.TenantID, UserID: assignment.UserID, RoleID: assignment.RoleID}
+	}
+	return nil
+}
+
 // RemoveUserRole 在测试仓储中删除用户角色授权。
 func (r *memoryTenantRepo) RemoveUserRole(_ context.Context, tenantID *uint64, userID uint64, roleCode domain.RoleCode) error {
 	r.mu.Lock()
@@ -293,7 +337,7 @@ func (r *memoryTenantRepo) RemoveUserRole(_ context.Context, tenantID *uint64, u
 	return nil
 }
 
-// ReplaceTenantBusinessRole 在测试仓储中模拟事务替换 DO/DU 普通业务角色。
+// ReplaceTenantBusinessRole 在测试仓储中模拟旧接口的兼容追加行为，避免再次制造 DO/DU 互斥。
 func (r *memoryTenantRepo) ReplaceTenantBusinessRole(_ context.Context, tenantID uint64, userID uint64, roleCode domain.RoleCode) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -301,12 +345,7 @@ func (r *memoryTenantRepo) ReplaceTenantBusinessRole(_ context.Context, tenantID
 	if !ok {
 		return repository.ErrRoleNotFound
 	}
-	for _, code := range []domain.RoleCode{domain.RoleDO, domain.RoleDU} {
-		if id, ok := r.roleCodes[code]; ok {
-			delete(r.assignments, memoryTenantRoleKey(&tenantID, userID, id))
-		}
-	}
-	r.assignments[memoryTenantRoleKey(&tenantID, userID, roleID)] = &domain.UserRoleAssignment{ID: r.nextAssign, TenantID: &tenantID, UserID: userID, RoleID: roleID}
+	r.assignments[memoryTenantRoleKey(&tenantID, userID, roleID)] = &domain.UserRoleAssignment{ID: r.nextAssign, TenantID: &tenantID, UserID: userID, RoleID: roleID, AssignmentSource: domain.AssignmentSourceManual, Status: domain.UserRoleStatusActive}
 	r.nextAssign++
 	return nil
 }
@@ -331,6 +370,23 @@ func (r *memoryTenantRepo) ListPlatformRoleCodes(_ context.Context, userID uint6
 		}
 	}
 	return roles, nil
+}
+
+// ListUserIDsByPlatformRole 返回测试仓储中拥有指定平台角色的用户 ID 集合。
+func (r *memoryTenantRepo) ListUserIDsByPlatformRole(_ context.Context, roleCode domain.RoleCode) (map[uint64]struct{}, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	roleID, ok := r.roleCodes[roleCode]
+	if !ok {
+		return map[uint64]struct{}{}, nil
+	}
+	result := map[uint64]struct{}{}
+	for _, assignment := range r.assignments {
+		if assignment.TenantID == nil && assignment.RoleID == roleID {
+			result[assignment.UserID] = struct{}{}
+		}
+	}
+	return result, nil
 }
 
 // HasRole 判断测试仓储中用户是否拥有指定平台或租户角色。
