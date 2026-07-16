@@ -1,4 +1,4 @@
-const fallbackBaseUrl = "http://localhost:8080";
+const fallbackBaseUrl = "http://localhost:18080";
 declare const __APP_ENV__: string;
 declare const __APP_VERSION__: string;
 
