@@ -203,6 +203,11 @@ export function saveStoredTenantContext(userId: string | number, context: Partia
   const contexts = readTenantContexts();
   contexts[normalizedUserId] = next;
   writeTenantContexts(contexts);
+  const existingAccount = getCachedAccounts().find((account) => account.userId === normalizedUserId);
+  if (existingAccount) {
+    // 账号卡片展示的是最近一次有效租户身份；这里只缓存角色快照，不把它作为权限判断依据。
+    upsertCachedAccount({ ...existingAccount, tenantRoles: next.tenantRoles, platformRoles: next.platformRoles });
+  }
   clearLegacyGlobalTenantStorage();
   return next;
 }
@@ -246,9 +251,9 @@ export function tenantContextFromAPI(userId: string | number, data: TenantContex
   });
   const existingAccount = getCachedAccounts().find((account) => account.userId === normalizedUserId);
   if (existingAccount) {
-    upsertCachedAccount({ ...existingAccount, platformRoles: apiPlatformRoles, status: "active", expired: false, loggedOut: false });
+    upsertCachedAccount({ ...existingAccount, tenantRoles: context.tenantRoles, platformRoles: apiPlatformRoles, status: "active", expired: false, loggedOut: false });
   } else if (data.user) {
-    upsertCachedAccount(toCachedAccount(data.user, apiPlatformRoles, "active"));
+    upsertCachedAccount({ ...toCachedAccount(data.user, apiPlatformRoles, "active"), tenantRoles: context.tenantRoles });
   }
   return context;
 }
@@ -261,6 +266,7 @@ function sanitizeCachedAccount(account: LegacyCachedAccount, userId = String(acc
     nickname: String(account.nickname || account.email || "未命名账号"),
     role: account.role ?? "data_user",
     avatarUrl: account.avatarUrl,
+    tenantRoles: normalizeTenantRoles(account.tenantRoles),
     platformRoles: normalizePlatformRoles(account.platformRoles),
     lastLoginAt: Number(account.lastLoginAt ?? account.lastActiveAt ?? Date.now()),
     status,
@@ -303,9 +309,15 @@ export function getCachedAccounts(): CachedAccount[] {
   try {
     const parsed = JSON.parse(raw) as LegacyCachedAccount[];
     if (!Array.isArray(parsed)) return [];
+    const tenantContexts = readTenantContexts();
     const accounts = parsed
       .filter((account) => account.userId && account.email)
-      .map((account) => sanitizeCachedAccount(account, String(account.userId)));
+      .map((account) => {
+        const userId = String(account.userId);
+        const sanitized = sanitizeCachedAccount(account, userId);
+        // 升级前的账号缓存没有 tenantRoles，优先从按用户隔离的租户上下文回填，避免必须切换一次才修正身份文案。
+        return { ...sanitized, tenantRoles: tenantContexts[userId]?.tenantRoles ?? sanitized.tenantRoles };
+      });
     saveCachedAccounts(accounts);
     return accounts;
   } catch {

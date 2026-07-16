@@ -88,10 +88,10 @@ export function getTenantMemberRoles(userId: number): Promise<MemberRoleDTO> {
   return request(`/tenant/members/${userId}/roles`);
 }
 
-export function replaceTenantMemberRoles(userId: number, roleIds: number[]): Promise<MemberRoleDTO> {
+export function replaceTenantMemberRoles(userId: number, roleCodes: string[]): Promise<MemberRoleDTO> {
   return request(`/tenant/members/${userId}/roles`, {
     method: "PUT",
-    body: JSON.stringify({ roleIds })
+    body: JSON.stringify({ roleCodes })
   });
 }
 

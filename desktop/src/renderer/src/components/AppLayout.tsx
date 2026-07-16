@@ -7,6 +7,7 @@ import {
   ApartmentOutlined,
   DashboardOutlined,
   DownOutlined,
+  FileProtectOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   RightOutlined,
@@ -109,6 +110,14 @@ export function AppLayout() {
         label: "租户管理",
         children: tenantChildren
       });
+    }
+    const encryptionChildren = [
+      auth.hasPermission("crypto.key.self.manage") ? { key: "/my-rsa-keys", icon: <SafetyCertificateOutlined />, label: "我的密钥" } : null,
+      auth.hasPermission("file.upload") ? { key: "/encryption", icon: <FileProtectOutlined />, label: "数据加密" } : null,
+      { key: "/file-center", icon: <FileProtectOutlined />, label: "文件中心" }
+    ].filter(Boolean) as NonNullable<MenuProps["items"]>;
+    if (encryptionChildren.length > 0) {
+      items.push({ key: "encryption", icon: <FileProtectOutlined />, label: "数据安全", children: encryptionChildren });
     }
     return items;
   }, [auth]);
@@ -330,6 +339,11 @@ function selectedKeyForPath(pathname: string) {
   if (pathname.startsWith("/tenant/members")) return "/tenant/members";
   if (pathname.startsWith("/tenant/org-management")) return "/tenant/org-management";
   if (pathname.startsWith("/tenant/access-policies")) return "/tenant/access-policies";
+  if (pathname.startsWith("/my-rsa-keys")) return "/my-rsa-keys";
+  if (pathname.startsWith("/file-center")) return "/file-center";
+  if (pathname.startsWith("/received-files")) return "/file-center";
+  if (pathname.startsWith("/encrypted-files")) return "/file-center";
+  if (pathname.startsWith("/encryption")) return "/encryption";
   return pathname;
 }
 
@@ -374,7 +388,7 @@ function AccountMenu({
           const accountAvatar = resolveAvatarURL(account.avatarUrl);
           const isCurrent = account.userId === currentUserId;
           const unavailable = !hasAccountSession(account.userId);
-          const statusText = account.status === "login_required" ? "需要重新登录" : unavailable ? "登录已过期" : roleLabel(account.role);
+          const statusText = account.status === "login_required" ? "需要重新登录" : unavailable ? "登录已过期" : roleLabel(account.role, account.tenantRoles);
           return (
             <div className={`account-row${isCurrent ? " account-row-current" : ""}`} key={account.userId}>
               <button

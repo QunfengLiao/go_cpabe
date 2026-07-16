@@ -17,9 +17,9 @@ export interface User {
   updated_at?: string;
 }
 
-export type BuiltinTenantRole = "PLATFORM_ADMIN" | "TENANT_ADMIN" | "DO" | "DU";
-export type TenantRole = BuiltinTenantRole | (string & {});
-export type TenantBusinessRole = "DATA_OWNER" | "DATA_VISITOR";
+export type PlatformRoleCode = "PLATFORM_ADMIN";
+export type BuiltinTenantRoleCode = "TENANT_ADMIN" | "DO" | "DU";
+export type TenantRole = string;
 export type TenantStatus = "enabled" | "disabled";
 export type AuthorizationStatus = "idle" | "loading" | "ready" | "error";
 export type PermissionScopeType = "PLATFORM" | "TENANT";
@@ -188,6 +188,7 @@ export interface CachedAccount {
   nickname: string;
   role: UserRole;
   avatarUrl?: string;
+  tenantRoles?: TenantRole[];
   platformRoles?: TenantRole[];
   lastLoginAt: number;
   status?: "active" | "expired" | "login_required";
@@ -222,6 +223,12 @@ export interface TenantMember {
   roles: TenantRole[];
   joined_at?: string;
   created_at?: string;
+}
+
+export interface TenantMemberCreateResult {
+  member: TenantMember;
+  created_user: boolean;
+  temporary_password?: string;
 }
 
 export interface PlatformDashboard {

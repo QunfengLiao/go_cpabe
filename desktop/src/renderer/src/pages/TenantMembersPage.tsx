@@ -1,10 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
-import { listTenantMembers } from "../api/tenant";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { createTenantMember, listTenantMembers } from "../api/tenant";
 import { ApiError } from "../api/request";
 import { useAuth } from "../auth/AuthContext";
 import { Alert } from "../components/Alert";
 import { TenantMemberRoleDialog } from "../components/TenantMemberRoleDialog";
 import type { MemberRoleDTO, TenantMember, TenantRole } from "../types";
+
+export function memberCreationSuccessMessage(result: { created_user: boolean; temporary_password?: string }): string {
+  return result.created_user ? `成员已创建，初始密码：${result.temporary_password ?? "lqf999.."}；首次登录后会提示尽快修改密码。` : "已有账号已加入当前租户，原密码和资料未被修改。";
+}
 
 export function TenantMembersPage() {
   const auth = useAuth();
@@ -16,6 +20,9 @@ export function TenantMembersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [createOpen, setCreateOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createForm, setCreateForm] = useState({ username: "", displayName: "", email: "", phone: "", roles: ["DU"] as Array<"DO" | "DU"> });
 
   async function loadMembers() {
     if (!tenantId) {
@@ -48,11 +55,33 @@ export function TenantMembersPage() {
       }
       setSelectedMember(null);
       setSuccess("成员角色已更新");
-      setMembers((current) => current.map((member) => member.user_id === result.userId ? { ...member, roles: result.roles.map((role) => role.code as TenantRole) } : member));
+      setMembers((current) => current.map((member) => member.user_id === result.userId ? { ...member, roles: result.roles.map((role) => role.code) } : member));
       await loadMembers();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "角色刷新失败");
     }
+  }
+
+  async function onCreateMember(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(""); setSuccess("");
+    if (createForm.roles.length === 0) { setError("请至少选择一个初始能力角色"); return; }
+    setCreating(true);
+    try {
+      const result = await createTenantMember(createForm);
+      setCreateOpen(false);
+      setCreateForm({ username: "", displayName: "", email: "", phone: "", roles: ["DU"] });
+      setSuccess(memberCreationSuccessMessage(result));
+      await loadMembers();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "新增成员失败");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  function toggleCreateRole(role: "DO" | "DU") {
+    setCreateForm((form) => ({ ...form, roles: form.roles.includes(role) ? form.roles.filter((item) => item !== role) : [...form.roles, role] }));
   }
 
   return (
@@ -60,9 +89,10 @@ export function TenantMembersPage() {
       <div className="platform-header">
         <div>
           <h2>租户成员</h2>
-          <p>{currentTenant ? `${currentTenant.tenant_name} 的成员和普通业务角色` : "查看当前租户成员"}</p>
+          <p>{currentTenant ? `${currentTenant.tenant_name} 的成员、治理角色、能力角色和自定义角色` : "查看当前租户成员"}</p>
         </div>
         <div className="platform-actions">
+          {canAssignBusinessRole && <button className="primary-action" type="button" onClick={() => setCreateOpen(true)}>新增成员</button>}
           <button className="secondary-action" type="button" onClick={() => void loadMembers()} disabled={loading}>
             刷新
           </button>
@@ -75,7 +105,7 @@ export function TenantMembersPage() {
       {auth.isPlatformAdmin && (
         <section className="panel platform-note">
           <h3>平台管理员提示</h3>
-          <p>平台管理员不参与租户内普通业务角色分配；需要指定租户管理员时请使用平台后台兜底能力。</p>
+          <p>平台管理员不参与租户内成员角色分配；租户内操作权限由角色绑定的 permission 决定。</p>
         </section>
       )}
 
@@ -133,15 +163,44 @@ export function TenantMembersPage() {
           onSaved={(result) => void onRolesSaved(result)}
         />
       )}
+
+      {createOpen && (
+        <div className="platform-modal-backdrop" role="presentation" onClick={() => !creating && setCreateOpen(false)}>
+          <section className="platform-modal" role="dialog" aria-modal="true" aria-labelledby="create-tenant-member-title" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-title-row">
+              <div><span>成员管理</span><strong id="create-tenant-member-title">新增租户成员</strong></div>
+              <button className="secondary-action" type="button" disabled={creating} onClick={() => setCreateOpen(false)}>关闭</button>
+            </div>
+            <form className="platform-modal-form" onSubmit={(event) => void onCreateMember(event)}>
+              <label className="field"><span>用户名</span><input required minLength={3} maxLength={64} value={createForm.username} onChange={(event) => setCreateForm((form) => ({ ...form, username: event.target.value }))} placeholder="例如 du.zhangsan" autoFocus /></label>
+              <label className="field"><span>姓名</span><input required maxLength={20} value={createForm.displayName} onChange={(event) => setCreateForm((form) => ({ ...form, displayName: event.target.value }))} placeholder="成员姓名" /></label>
+              <label className="field"><span>邮箱</span><input required type="email" value={createForm.email} onChange={(event) => setCreateForm((form) => ({ ...form, email: event.target.value }))} placeholder="用于登录；已有邮箱会复用账号" /></label>
+              <label className="field"><span>手机号（可选）</span><input maxLength={32} value={createForm.phone} onChange={(event) => setCreateForm((form) => ({ ...form, phone: event.target.value }))} /></label>
+              <fieldset className="drawer-form-section">
+                <legend>初始能力角色</legend>
+                <label className="role-dialog-checkbox"><input type="checkbox" checked={createForm.roles.includes("DO")} onChange={() => toggleCreateRole("DO")} /><span><strong>数据拥有者 DO</strong><small>负责数据加密、策略绑定和文件发布等能力</small></span></label>
+                <label className="role-dialog-checkbox"><input type="checkbox" checked={createForm.roles.includes("DU")} onChange={() => toggleCreateRole("DU")} /><span><strong>数据使用者 DU</strong><small>负责访问和解密符合权限的文件，可与 DO 同时承担</small></span></label>
+              </fieldset>
+              <p className="drawer-subtitle">新账号初始密码统一为 <strong>lqf999..</strong>，首次登录会提示尽快修改；已有账号不会重置密码。</p>
+              <div className="modal-action-row"><button className="secondary-action" type="button" disabled={creating} onClick={() => setCreateOpen(false)}>取消</button><button className="primary-action" type="submit" disabled={creating}>{creating ? "创建中..." : "创建成员"}</button></div>
+            </form>
+          </section>
+        </div>
+      )}
     </section>
   );
 }
 
 function roleListLabel(roles: TenantRole[]): string {
-  if (roles.includes("TENANT_ADMIN")) return "租户管理员";
-  if (roles.includes("DO")) return "数据拥有者";
-  if (roles.includes("DU")) return "数据访问者";
-  return "未分配";
+  if (!roles.length) return "未分配";
+  return roles.map(roleDisplayName).join(" / ");
+}
+
+function roleDisplayName(role: TenantRole): string {
+  if (role === "TENANT_ADMIN") return "租户管理员";
+  if (role === "DO") return "数据拥有者 DO";
+  if (role === "DU") return "数据使用者 DU";
+  return role;
 }
 
 function MemberStatusBadge({ status }: { status: string }) {

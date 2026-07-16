@@ -70,7 +70,7 @@ describe("rbac API client", () => {
     await getTenantRolePermissions(15);
     await replaceTenantRolePermissions(15, ["tenant.member.read", "policy.read"]);
     await getTenantMemberRoles(7);
-    await replaceTenantMemberRoles(7, [2, 3, 15]);
+    await replaceTenantMemberRoles(7, ["DO", "DU", "SRE_ENGINEER"]);
 
     expect(requestMock).toHaveBeenNthCalledWith(1, "/tenant/roles/15");
     expect(requestMock).toHaveBeenNthCalledWith(2, "/tenant/roles/15/permissions");
@@ -81,7 +81,7 @@ describe("rbac API client", () => {
     expect(requestMock).toHaveBeenNthCalledWith(4, "/tenant/members/7/roles");
     expect(requestMock).toHaveBeenNthCalledWith(5, "/tenant/members/7/roles", {
       method: "PUT",
-      body: JSON.stringify({ roleIds: [2, 3, 15] })
+      body: JSON.stringify({ roleCodes: ["DO", "DU", "SRE_ENGINEER"] })
     });
   });
 
@@ -91,4 +91,3 @@ describe("rbac API client", () => {
     expect(rbacErrorMessage(new ApiError("原始错误", 500, "UNKNOWN"))).toBe("原始错误");
   });
 });
-

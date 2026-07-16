@@ -15,11 +15,11 @@ export function TenantMemberRoleDialog({ member, onClose, onSaved }: TenantMembe
   const auth = useAuth();
   const [roles, setRoles] = useState<TenantRoleDTO[]>([]);
   const [currentRoles, setCurrentRoles] = useState<TenantRoleDTO[]>([]);
-  const [selectedRoleIds, setSelectedRoleIds] = useState<number[]>([]);
+  const [selectedRoleCodes, setSelectedRoleCodes] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const currentRoleIds = useMemo(() => new Set(currentRoles.map((role) => role.id)), [currentRoles]);
+  const currentRoleCodes = useMemo(() => new Set(currentRoles.map((role) => role.code)), [currentRoles]);
   const tenantId = Number(auth.currentTenantId) || undefined;
   const groupedRoles = useMemo(() => {
     return filterTenantVisibleRoles(roles, tenantId)
@@ -41,7 +41,7 @@ export function TenantMemberRoleDialog({ member, onClose, onSaved }: TenantMembe
         if (!alive) return;
         setRoles(roleItems);
         setCurrentRoles(memberRoles.roles);
-        setSelectedRoleIds(memberRoles.roles.map((role) => role.id));
+        setSelectedRoleCodes(memberRoles.roles.map((role) => role.code));
       } catch (err) {
         if (alive) setError(rbacErrorMessage(err, "成员角色加载失败"));
       } finally {
@@ -55,10 +55,10 @@ export function TenantMemberRoleDialog({ member, onClose, onSaved }: TenantMembe
   }, [member.user_id]);
 
   function toggleRole(role: TenantRoleDTO, checked: boolean) {
-    setSelectedRoleIds((current) => {
+    setSelectedRoleCodes((current) => {
       const next = new Set(current);
-      if (checked) next.add(role.id);
-      else next.delete(role.id);
+      if (checked) next.add(role.code);
+      else next.delete(role.code);
       return Array.from(next);
     });
   }
@@ -67,7 +67,7 @@ export function TenantMemberRoleDialog({ member, onClose, onSaved }: TenantMembe
     setSaving(true);
     setError("");
     try {
-      const result = await replaceTenantMemberRoles(member.user_id, selectedRoleIds);
+      const result = await replaceTenantMemberRoles(member.user_id, selectedRoleCodes);
       onSaved(result);
     } catch (err) {
       setError(rbacErrorMessage(err, "成员角色保存失败"));
@@ -108,8 +108,8 @@ export function TenantMemberRoleDialog({ member, onClose, onSaved }: TenantMembe
                 <div className="role-dialog-checkbox-grid">
                   {items.map((role) => {
                     const disabled = role.status === "DISABLED";
-                    const checked = selectedRoleIds.includes(role.id);
-                    const changed = checked !== currentRoleIds.has(role.id);
+                    const checked = selectedRoleCodes.includes(role.code);
+                    const changed = checked !== currentRoleCodes.has(role.code);
                     return (
                       <label className={`role-dialog-checkbox${disabled ? " role-dialog-checkbox-disabled" : ""}`} key={role.id}>
                         <Checkbox checked={checked} disabled={disabled || saving} onChange={(event) => toggleRole(role, event.target.checked)} />
@@ -143,5 +143,12 @@ export function TenantMemberRoleDialog({ member, onClose, onSaved }: TenantMembe
 
 function roleListLabel(roles: TenantRole[]): string {
   if (!roles.length) return "未分配";
-  return roles.join(" / ");
+  return roles.map(roleDisplayName).join(" / ");
+}
+
+function roleDisplayName(role: TenantRole): string {
+  if (role === "TENANT_ADMIN") return "租户管理员";
+  if (role === "DO") return "数据拥有者 DO";
+  if (role === "DU") return "数据使用者 DU";
+  return role;
 }

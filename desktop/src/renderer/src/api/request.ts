@@ -75,11 +75,11 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 }
 
 async function rawRequest<T>(path: string, options: RequestOptions): Promise<T> {
-  const response = await fetch(buildURL(path), await buildOptions(path, options));
+  const response = await fetchResponse(path, options);
   if (response.status === 401 && !options.skipRefresh) {
     const refreshed = await tryRefresh();
     if (refreshed) {
-      const retry = await fetch(buildURL(path), await buildOptions(path, options));
+      const retry = await fetchResponse(path, options);
       return parseResponse<T>(retry);
     }
   }
@@ -107,6 +107,18 @@ async function buildOptions(path: string, options: RequestOptions): Promise<Requ
     ...options,
     headers
   };
+}
+
+// fetchResponse 将浏览器网络层的模糊 TypeError 转成可操作提示，同时不泄漏认证头和请求正文。
+async function fetchResponse(path: string, options: RequestOptions): Promise<Response> {
+	try {
+		return await fetch(buildURL(path), await buildOptions(path, options));
+	} catch (error) {
+		if (error instanceof TypeError) {
+			throw new ApiError(`无法连接后端服务（${new URL(API_BASE_URL).origin}），请检查服务是否启动及 CORS 配置`, 0, "NETWORK_ERROR");
+		}
+		throw error;
+	}
 }
 
 function cacheKeyFor(path: string, options: RequestOptions): string {

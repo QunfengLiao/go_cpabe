@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { clearRequestCache, request } from "./request";
+import { API_BASE_URL, clearRequestCache, request } from "./request";
 import { saveStoredTenantContext } from "./authStorage";
 import { setAuthRuntime } from "./authRuntime";
 
@@ -40,6 +40,10 @@ vi.stubGlobal("fetch", fetchMock);
 vi.mock("./authSessionStore", () => ({
   refreshAccountSession: vi.fn()
 }));
+
+it("默认连接本地 18080 后端端口", () => {
+  expect(API_BASE_URL).toBe("http://localhost:18080/api/v1");
+});
 
 function ok(body: unknown): Response {
   return {
@@ -206,5 +210,13 @@ describe("request 租户请求头与短缓存", () => {
 
     await expect(request("/tenant/roles")).rejects.toThrow("授权上下文尚未就绪");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("网络或 CORS 失败时返回明确后端连接提示", async () => {
+	seedAccount("6", "606");
+	fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+
+	await expect(request("/tenant/me/rsa-public-keys", { method: "POST", headers: { "Idempotency-Key": "test-key" }, body: "{}" }))
+		.rejects.toMatchObject({ code: "NETWORK_ERROR", message: expect.stringContaining("无法连接后端服务") });
   });
 });

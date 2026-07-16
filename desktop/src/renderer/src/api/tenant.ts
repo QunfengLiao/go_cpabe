@@ -1,4 +1,4 @@
-import type { SwitchTenantData, TenantBusinessRole, TenantContextData, TenantMember } from "../types";
+import type { SwitchTenantData, TenantContextData, TenantMember, TenantMemberCreateResult } from "../types";
 import { request } from "./request";
 
 export function listMyTenants(): Promise<TenantContextData> {
@@ -18,9 +18,10 @@ export async function listTenantMembers(tenantId: number): Promise<TenantMember[
   return data.users;
 }
 
-export function assignTenantMemberRole(tenantId: number, userId: number, roleCode: TenantBusinessRole): Promise<TenantMember> {
-  return request(`/tenants/${tenantId}/members/${userId}/role`, {
-    method: "PUT",
-    body: JSON.stringify({ roleCode })
+export function createTenantMember(input: { username: string; displayName: string; email: string; phone?: string; roles: Array<"DO" | "DU"> }): Promise<TenantMemberCreateResult> {
+  return request("/tenant/members", {
+    method: "POST",
+    headers: { "Idempotency-Key": crypto.randomUUID() },
+    body: JSON.stringify({ username: input.username, display_name: input.displayName, email: input.email, phone: input.phone ?? "", roles: input.roles })
   });
 }

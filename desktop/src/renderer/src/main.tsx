@@ -26,8 +26,13 @@ import { SelectTenantPage } from "./pages/SelectTenantPage";
 import { StartupRedirect } from "./pages/StartupRedirect";
 import { TenantAccessPolicyViewPage } from "./pages/TenantAccessPolicyViewPage";
 import { TenantMembersPage } from "./pages/TenantMembersPage";
+import { MyRSAKeysPage } from "./pages/MyRSAKeysPage";
+import { ReceivedFilesPage } from "./pages/ReceivedFilesPage";
 import { TenantOrgManagementPage } from "./pages/TenantOrgManagementPage";
 import { TenantRolesPage } from "./pages/TenantRolesPage";
+import { DataEncryptionPage } from "./pages/DataEncryptionPage";
+import { EncryptedFilesPage } from "./pages/EncryptedFilesPage";
+import { FileCenterPage } from "./pages/FileCenterPage";
 import { prepareStartupTenant } from "./tenantStartup";
 import { ThemeProvider } from "./theme/ThemeProvider";
 import "antd/dist/reset.css";
@@ -106,6 +111,15 @@ createRoot(document.getElementById("root")!).render(
                 <Route element={<RequirePermission permission="tenant.org.read" />}>
                   <Route path="/tenant/org-management" element={<TenantOrgManagementPage />} />
                 </Route>
+                <Route element={<RequirePermission permission="file.upload" />}>
+                  <Route path="/encryption" element={<DataEncryptionPage />} />
+                </Route>
+                <Route element={<RequirePermission permission="crypto.key.self.manage" />}>
+                  <Route path="/my-rsa-keys" element={<MyRSAKeysPage />} />
+                </Route>
+                <Route path="/received-files" element={<ReceivedFilesPage />} />
+                <Route path="/encrypted-files" element={<EncryptedFilesPage />} />
+                <Route path="/file-center" element={<FileCenterPage />} />
                 <Route path="*" element={<Navigate to="/profile" replace />} />
               </Route>
             </Route>

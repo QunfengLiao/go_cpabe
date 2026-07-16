@@ -137,6 +137,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   function clearTenantMemory(status: AuthContextValue["authStatus"] = "resolving-tenant", runtimeOverride: Partial<AuthRuntimeSnapshot> = {}) {
+	void window.desktopEncryption?.clearContext();
     const baseRuntime = { ...getAuthRuntime(), ...runtimeOverride };
     setTenants([]);
     setCurrentTenantIdState("");
@@ -287,6 +288,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const clearAuth = useCallback((message?: string) => {
+	void window.desktopEncryption?.clearContext();
     authGeneration.current += 1;
     clearRequestCache();
     clearCurrentSession();

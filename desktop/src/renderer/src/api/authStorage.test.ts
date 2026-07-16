@@ -206,6 +206,37 @@ describe("authStorage refresh token 迁移", () => {
     expect(context.tenantRoles).toEqual(["DO"]);
   });
 
+  it("/me/context 会把真实租户角色同步到账户切换缓存", async () => {
+    const tenantAdminLogin = loginData();
+    tenantAdminLogin.user = { ...tenantAdminLogin.user, id: 13, email: "tenant-admin@example.com", role: "data_user" };
+    await saveLoginSession(tenantAdminLogin);
+
+    tenantContextFromAPI("13", {
+      tenants: [{ tenant_id: 601, tenant_name: "租户 A", tenant_code: "tenant-a", roles: ["TENANT_ADMIN"] }],
+      platform_roles: []
+    });
+
+    const account = getCachedAccounts().find((item) => item.userId === "13");
+    expect(account?.role).toBe("data_user");
+    expect(account?.tenantRoles).toEqual(["TENANT_ADMIN"]);
+  });
+
+  it("旧账号缓存会从对应用户的租户上下文回填真实角色", () => {
+    saveStoredTenantContext("14", {
+      currentTenantId: "602",
+      currentTenantCode: "tenant-b",
+      tenants: [{ tenant_id: 602, tenant_name: "租户 B", tenant_code: "tenant-b", roles: ["TENANT_ADMIN"] }],
+      tenantRoles: ["TENANT_ADMIN"]
+    });
+    localStorage.setItem(
+      "go_cpabe_cached_accounts",
+      JSON.stringify([{ userId: "14", email: "legacy-admin@example.com", nickname: "旧租户管理员", role: "data_user", lastLoginAt: Date.now(), status: "active" }])
+    );
+
+    const account = getCachedAccounts().find((item) => item.userId === "14");
+    expect(account?.tenantRoles).toEqual(["TENANT_ADMIN"]);
+  });
+
   it("/me/context 多个租户时优先恢复当前账号自己的有效历史选择", () => {
     saveStoredTenantContext("11", {
       currentTenantId: "402",
