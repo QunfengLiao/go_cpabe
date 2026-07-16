@@ -444,11 +444,11 @@ func (r *GormOrgAttributeRepository) EnsureOrgMember(ctx context.Context, member
 	err := r.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "tenant_id"}, {Name: "org_unit_id"}, {Name: "user_id"}},
 		DoUpdates: clause.Assignments(map[string]any{
-			"status":      member.Status,
-			"source":      member.Source,
-			"is_primary":  member.IsPrimary,
-			"updated_at":  gorm.Expr("CURRENT_TIMESTAMP(3)"),
-			"deleted_at":  nil,
+			"status":     member.Status,
+			"source":     member.Source,
+			"is_primary": member.IsPrimary,
+			"updated_at": gorm.Expr("CURRENT_TIMESTAMP(3)"),
+			"deleted_at": nil,
 		}),
 	}).Create(member).Error
 	if err != nil {

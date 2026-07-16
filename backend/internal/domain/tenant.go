@@ -195,17 +195,17 @@ func (RolePermission) TableName() string {
 
 // TenantDTO 是返回给前端的租户展示模型，隐藏数据库软删除等内部字段。
 type TenantDTO struct {
-	TenantID         uint64       `json:"tenant_id"`
-	TenantName       string       `json:"tenant_name"`
-	TenantCode       string       `json:"tenant_code"`
-	Status           TenantStatus `json:"status,omitempty"`
-	Description      string       `json:"description,omitempty"`
+	TenantID         uint64            `json:"tenant_id"`
+	TenantName       string            `json:"tenant_name"`
+	TenantCode       string            `json:"tenant_code"`
+	Status           TenantStatus      `json:"status,omitempty"`
+	Description      string            `json:"description,omitempty"`
 	Branding         TenantBrandingDTO `json:"branding,omitempty"`
-	Roles            []RoleCode   `json:"roles,omitempty"`
-	UserCount        int64        `json:"user_count,omitempty"`
-	TenantAdminCount int64        `json:"tenant_admin_count,omitempty"`
-	CreatedAt        *time.Time   `json:"created_at,omitempty"`
-	UpdatedAt        *time.Time   `json:"updated_at,omitempty"`
+	Roles            []RoleCode        `json:"roles,omitempty"`
+	UserCount        int64             `json:"user_count,omitempty"`
+	TenantAdminCount int64             `json:"tenant_admin_count,omitempty"`
+	CreatedAt        *time.Time        `json:"created_at,omitempty"`
+	UpdatedAt        *time.Time        `json:"updated_at,omitempty"`
 }
 
 // TenantBrandingDTO 是前端主题系统使用的租户品牌配置，不参与权限判断。
@@ -225,11 +225,11 @@ type TenantContextDTO struct {
 	CurrentTenantID   *uint64     `json:"current_tenant_id"`
 	CurrentTenantCode *string     `json:"current_tenant_code,omitempty"`
 	CurrentTenant     *TenantDTO  `json:"currentTenant,omitempty"`
-	TenantRoles       []RoleCode   `json:"tenantRoles,omitempty"`
-	Permissions       []string     `json:"permissions,omitempty"`
-	PlatformRoles     []RoleCode   `json:"platform_roles"`
-	User              *UserDTO     `json:"user,omitempty"`
-	Tenants           []TenantDTO  `json:"tenants"`
+	TenantRoles       []RoleCode  `json:"tenantRoles,omitempty"`
+	Permissions       []string    `json:"permissions,omitempty"`
+	PlatformRoles     []RoleCode  `json:"platform_roles"`
+	User              *UserDTO    `json:"user,omitempty"`
+	Tenants           []TenantDTO `json:"tenants"`
 }
 
 // SwitchTenantDTO 是切换租户后的响应模型，包含租户角色和后续菜单扩展点。
@@ -253,6 +253,13 @@ type TenantMemberDTO struct {
 	MemberStatus TenantUserStatus `json:"member_status"`
 	Roles        []RoleCode       `json:"roles"`
 	JoinedAt     *time.Time       `json:"joined_at,omitempty"`
+}
+
+// TenantMemberCreateDTO 描述租户管理员创建或复用成员账号的结果，初始密码只在新账号创建成功时返回一次。
+type TenantMemberCreateDTO struct {
+	Member            TenantMemberDTO `json:"member"`
+	CreatedUser       bool            `json:"created_user"`
+	TemporaryPassword string          `json:"temporary_password,omitempty"`
 }
 
 // TenantAdminAssignmentDTO 描述租户管理员授权或撤销操作的结果。
@@ -282,19 +289,19 @@ type PermissionDTO struct {
 
 // TenantRoleDTO 是租户角色列表、详情和成员角色响应中的统一角色摘要。
 type TenantRoleDTO struct {
-	ID                uint64       `json:"id"`
-	TenantID          uint64       `json:"tenantId"`
-	Code              string       `json:"code"`
-	Name              string       `json:"name"`
-	Description       string       `json:"description,omitempty"`
+	ID                uint64        `json:"id"`
+	TenantID          uint64        `json:"tenantId"`
+	Code              string        `json:"code"`
+	Name              string        `json:"name"`
+	Description       string        `json:"description,omitempty"`
 	ScopeType         RoleScopeType `json:"scopeType"`
-	RoleCategory      RoleCategory `json:"roleCategory"`
-	Category          RoleCategory `json:"category,omitempty"`
-	Builtin           bool         `json:"builtin"`
-	IsBuiltin         bool         `json:"is_builtin,omitempty"`
-	Status            RoleStatus   `json:"status"`
-	PermissionCount   int64        `json:"permissionCount,omitempty"`
-	ActiveMemberCount int64        `json:"activeMemberCount,omitempty"`
+	RoleCategory      RoleCategory  `json:"roleCategory"`
+	Category          RoleCategory  `json:"category,omitempty"`
+	Builtin           bool          `json:"builtin"`
+	IsBuiltin         bool          `json:"is_builtin,omitempty"`
+	Status            RoleStatus    `json:"status"`
+	PermissionCount   int64         `json:"permissionCount,omitempty"`
+	ActiveMemberCount int64         `json:"activeMemberCount,omitempty"`
 	// CreatedAt 记录角色创建时间，仅用于管理界面解释角色来源和排查数据初始化问题。
 	CreatedAt time.Time `json:"createdAt"`
 	// UpdatedAt 记录角色最近更新时间，用于前端展示角色配置是否近期发生变化。

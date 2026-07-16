@@ -140,17 +140,17 @@ type UserAttribute struct {
 
 // TenantAttributeDTO 是访问策略构建器读取的租户属性元数据。
 type TenantAttributeDTO struct {
-	ID          uint64                    `json:"id"`
-	TenantID    uint64                    `json:"tenantId"`
-	AttrCode    string                    `json:"attrCode"`
-	AttrName    string                    `json:"attrName"`
-	AttrType    PolicyAttributeType       `json:"attrType"`
+	ID          uint64                     `json:"id"`
+	TenantID    uint64                     `json:"tenantId"`
+	AttrCode    string                     `json:"attrCode"`
+	AttrName    string                     `json:"attrName"`
+	AttrType    PolicyAttributeType        `json:"attrType"`
 	ValueSource TenantAttributeValueSource `json:"valueSource"`
-	Operators   []string                  `json:"operators"`
-	Status      PolicyStatus              `json:"status"`
-	Description string                    `json:"description,omitempty"`
-	Values      []TenantAttributeValueDTO `json:"values"`
-	Tree        []TenantAttributeValueDTO `json:"tree"`
+	Operators   []string                   `json:"operators"`
+	Status      PolicyStatus               `json:"status"`
+	Description string                     `json:"description,omitempty"`
+	Values      []TenantAttributeValueDTO  `json:"values"`
+	Tree        []TenantAttributeValueDTO  `json:"tree"`
 }
 
 // TenantAttributeValueDTO 是属性字典中 enum/tree 值的前端展示模型。

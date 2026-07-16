@@ -65,6 +65,7 @@ SELECT COUNT(*) FROM (
   SELECT 'TENANT_ADMIN', 'tenant.org.manage' UNION ALL
   SELECT 'TENANT_ADMIN', 'policy.read' UNION ALL
   SELECT 'TENANT_ADMIN', 'audit.read' UNION ALL
+	SELECT 'TENANT_ADMIN', 'crypto.key.manage' UNION ALL
   SELECT 'DO', 'tenant.dashboard.read' UNION ALL
   SELECT 'DO', 'policy.read' UNION ALL
   SELECT 'DO', 'policy.write' UNION ALL
@@ -72,8 +73,11 @@ SELECT COUNT(*) FROM (
   SELECT 'DO', 'file.read' UNION ALL
   SELECT 'DO', 'file.upload' UNION ALL
   SELECT 'DO', 'file.manage' UNION ALL
+  SELECT 'DO', 'file.decrypt.invoke' UNION ALL
+	SELECT 'DO', 'crypto.key.self.manage' UNION ALL
   SELECT 'DU', 'tenant.dashboard.read' UNION ALL
   SELECT 'DU', 'file.read' UNION ALL
+	SELECT 'DU', 'crypto.key.self.manage' UNION ALL
   SELECT 'DU', 'file.decrypt.invoke'
 ) expected
 LEFT JOIN roles r ON r.tenant_id = 0 AND r.code = expected.role_code

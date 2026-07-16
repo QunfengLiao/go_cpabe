@@ -145,6 +145,50 @@ var (
 	ErrTenantAttributeInvalid = NewError("TENANT_ATTRIBUTE_INVALID", "租户属性非法", http.StatusBadRequest)
 	// ErrUserAttributeSyncFailed 表示用户属性同步失败，不能使用部分同步结果。
 	ErrUserAttributeSyncFailed = NewError("USER_ATTRIBUTE_SYNC_FAILED", "用户属性同步失败", http.StatusInternalServerError)
+	// ErrEncryptionAlgorithmUnavailable 表示算法未知、停用或未对当前租户开放。
+	ErrEncryptionAlgorithmUnavailable = NewError("ENCRYPTION_ALGORITHM_UNAVAILABLE", "加密算法当前不可用", http.StatusBadRequest)
+	// ErrRSAKeyInvalid 表示 RSA 公钥格式、位数或指纹不符合首期安全参数。
+	ErrRSAKeyInvalid = NewError("RSA_KEY_INVALID", "RSA 公钥无效", http.StatusBadRequest)
+	// ErrRSAKeyNotFound 表示当前租户范围内找不到可用公钥版本。
+	ErrRSAKeyNotFound = NewError("RSA_KEY_NOT_FOUND", "RSA 公钥不存在或已失效", http.StatusNotFound)
+	// ErrRSAKeyFingerprintExists 表示公钥已登记给其他租户成员。
+	ErrRSAKeyFingerprintExists = NewError("RSA_KEY_FINGERPRINT_EXISTS", "该公钥已登记", http.StatusConflict)
+	// ErrEncryptionFileInvalid 表示文件名、大小或显示类型不符合任务约束。
+	ErrEncryptionFileInvalid = NewError("ENCRYPTION_FILE_INVALID", "待加密文件信息无效", http.StatusBadRequest)
+	// ErrEncryptionFileTooLarge 表示明文或密文超过服务端配置上限。
+	ErrEncryptionFileTooLarge = NewError("ENCRYPTION_FILE_TOO_LARGE", "文件超过大小限制", http.StatusRequestEntityTooLarge)
+	// ErrEncryptionTaskNotFound 表示租户与所有者范围内不存在目标任务。
+	ErrEncryptionTaskNotFound = NewError("ENCRYPTION_TASK_NOT_FOUND", "加密任务不存在", http.StatusNotFound)
+	// ErrEncryptionAttemptNotFound 表示目标执行不存在或不属于当前任务。
+	ErrEncryptionAttemptNotFound = NewError("ENCRYPTION_ATTEMPT_NOT_FOUND", "加密执行不存在", http.StatusNotFound)
+	// ErrEncryptionStateConflict 表示状态推进、完成、取消或重试发生竞争。
+	ErrEncryptionStateConflict = NewError("ENCRYPTION_STATE_CONFLICT", "加密任务状态已变化", http.StatusConflict)
+	// ErrEncryptionRateLimited 表示用户或租户创建频率超过服务端限制。
+	ErrEncryptionRateLimited = NewError("ENCRYPTION_RATE_LIMITED", "加密请求过于频繁，请稍后重试", http.StatusTooManyRequests)
+	// ErrEncryptionConcurrencyLimited 表示租户并发租约已满，该错误允许重试。
+	ErrEncryptionConcurrencyLimited = NewError("ENCRYPTION_CONCURRENCY_LIMITED", "租户并发加密任务已达上限", http.StatusTooManyRequests)
+	// ErrEncryptionAdmissionUnavailable 表示 Redis 不可用时服务端安全拒绝新任务。
+	ErrEncryptionAdmissionUnavailable = NewError("ENCRYPTION_ADMISSION_UNAVAILABLE", "加密任务准入暂不可用", http.StatusServiceUnavailable)
+	// ErrCiphertextUploadRequired 表示完成前没有服务端复核的暂存密文。
+	ErrCiphertextUploadRequired = NewError("CIPHERTEXT_UPLOAD_REQUIRED", "请先上传完整密文", http.StatusConflict)
+	// ErrCiphertextHashMismatch 表示客户端摘要与服务端流式复核结果不一致。
+	ErrCiphertextHashMismatch = NewError("CIPHERTEXT_HASH_MISMATCH", "密文完整性校验失败", http.StatusUnprocessableEntity)
+	// ErrCiphertextStorageFailed 表示密文暂存、提交、读取或删除失败。
+	ErrCiphertextStorageFailed = NewError("CIPHERTEXT_STORAGE_FAILED", "密文存储操作失败", http.StatusInternalServerError)
+	// ErrProtectedKeyInvalid 表示受保护 DEK 或算法专属绑定不符合契约。
+	ErrProtectedKeyInvalid = NewError("PROTECTED_KEY_INVALID", "受保护密钥元数据无效", http.StatusBadRequest)
+	// ErrEncryptionOwnerKeyRequired 表示文件拥有者没有把自己的有效公钥纳入授权，继续创建会导致 owner 无法解密。
+	ErrEncryptionOwnerKeyRequired = NewError("ENCRYPTION_OWNER_KEY_REQUIRED", "文件拥有者必须保留自己的解密密钥", http.StatusBadRequest)
+	// ErrEncryptionCancelRejected 表示任务已进入不能取消的终态。
+	ErrEncryptionCancelRejected = NewError("ENCRYPTION_CANCEL_REJECTED", "当前任务无法取消", http.StatusConflict)
+	// ErrEncryptionRetryRejected 表示错误不可重试或原任务不是失败终态。
+	ErrEncryptionRetryRejected = NewError("ENCRYPTION_RETRY_REJECTED", "当前任务无法重试", http.StatusConflict)
+	// ErrEncryptedFileNotFound 表示当前租户与所有者范围内不存在目标文件。
+	ErrEncryptedFileNotFound = NewError("ENCRYPTED_FILE_NOT_FOUND", "加密文件不存在", http.StatusNotFound)
+	// ErrEncryptedFileUnavailable 表示文件尚未完成或密文对象不可用。
+	ErrEncryptedFileUnavailable = NewError("ENCRYPTED_FILE_UNAVAILABLE", "密文尚不可下载", http.StatusConflict)
+	// ErrStorageCompensationPending 表示对象删除失败并已登记后台补偿。
+	ErrStorageCompensationPending = NewError("STORAGE_COMPENSATION_PENDING", "存储清理已进入补偿队列", http.StatusAccepted)
 	// ErrInternal 表示服务端内部异常，响应中不暴露底层错误细节。
 	ErrInternal = NewError("INTERNAL_ERROR", "内部错误", http.StatusInternalServerError)
 )

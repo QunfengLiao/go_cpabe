@@ -60,7 +60,6 @@ type TenantRepository interface {
 	EnsureUserRole(ctx context.Context, tenantID *uint64, userID uint64, roleCode domain.RoleCode) error
 	EnsureUserRoleAssignments(ctx context.Context, assignments []domain.UserRoleAssignment) error
 	RemoveUserRole(ctx context.Context, tenantID *uint64, userID uint64, roleCode domain.RoleCode) error
-	ReplaceTenantBusinessRole(ctx context.Context, tenantID uint64, userID uint64, roleCode domain.RoleCode) error
 	ListRoleCodesByUserTenant(ctx context.Context, userID uint64, tenantID uint64) ([]domain.RoleCode, error)
 	ListPlatformRoleCodes(ctx context.Context, userID uint64) ([]domain.RoleCode, error)
 	ListUserIDsByPlatformRole(ctx context.Context, roleCode domain.RoleCode) (map[uint64]struct{}, error)
@@ -455,30 +454,6 @@ func (r *GormTenantRepository) RemoveUserRole(ctx context.Context, tenantID *uin
 		query = query.Where("tenant_id = ?", *tenantID)
 	}
 	return query.Delete(&domain.UserRoleAssignment{}).Error
-}
-
-// ReplaceTenantBusinessRole 是旧单角色接口的兼容包装，只追加或恢复指定能力角色，不再删除 DO/DU 中的另一项。
-func (r *GormTenantRepository) ReplaceTenantBusinessRole(ctx context.Context, tenantID uint64, userID uint64, roleCode domain.RoleCode) error {
-	roleID, err := r.roleIDByCode(ctx, roleCode)
-	if err != nil {
-		return err
-	}
-	assignment := domain.UserRoleAssignment{
-		TenantID:         &tenantID,
-		UserID:           userID,
-		RoleID:           roleID,
-		AssignmentSource: domain.AssignmentSourceManual,
-		Status:           domain.UserRoleStatusActive,
-	}
-	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "tenant_id"}, {Name: "user_id"}, {Name: "role_id"}},
-		DoUpdates: clause.Assignments(map[string]any{
-			"assignment_source": domain.AssignmentSourceManual,
-			"status":            domain.UserRoleStatusActive,
-			"revoked_at":        nil,
-			"updated_at":        gorm.Expr("CURRENT_TIMESTAMP(3)"),
-		}),
-	}).Create(&assignment).Error
 }
 
 // ListRoleCodesByUserTenant 返回用户在指定租户内拥有的角色编码列表。

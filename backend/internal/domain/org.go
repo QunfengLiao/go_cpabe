@@ -164,8 +164,8 @@ type OrgUnitTreeDTO struct {
 	// Leader 展示当前部门负责人摘要，只来自 active ORG_LEADER 职务，不代表系统权限角色。
 	Leader *OrgUnitLeaderDTO `json:"leader,omitempty"`
 	// DeputyLeaderCount 是当前部门 active 副负责人数量，用于详情摘要展示。
-	DeputyLeaderCount int64 `json:"deputyLeaderCount"`
-	Children       []OrgUnitTreeDTO          `json:"children"`
+	DeputyLeaderCount int64            `json:"deputyLeaderCount"`
+	Children          []OrgUnitTreeDTO `json:"children"`
 }
 
 // OrgUnitLeaderDTO 是组织树节点上负责人展示所需的最小用户信息。
@@ -178,11 +178,11 @@ type OrgUnitLeaderDTO struct {
 
 // OrgUnitAttributeValueDTO 是组织树节点关联的 department 属性值展示模型。
 type OrgUnitAttributeValueDTO struct {
-	ValueID    uint64              `json:"valueId"`
-	ValueCode  string              `json:"valueCode"`
-	ValueLabel string              `json:"valueLabel"`
-	ValuePath  string              `json:"valuePath"`
-	Status     PolicyStatus        `json:"status"`
+	ValueID    uint64       `json:"valueId"`
+	ValueCode  string       `json:"valueCode"`
+	ValueLabel string       `json:"valueLabel"`
+	ValuePath  string       `json:"valuePath"`
+	Status     PolicyStatus `json:"status"`
 }
 
 // OrgMemberDTO 是组织成员列表返回给租户管理员的展示模型。

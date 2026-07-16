@@ -25,5 +25,18 @@ func AutoMigrate(db *gorm.DB) error {
 		&domain.TenantAttribute{},
 		&domain.TenantAttributeValue{},
 		&domain.UserAttribute{},
+		&domain.EncryptionAlgorithm{},
+		&domain.TenantEncryptionAlgorithm{},
+		&domain.RSAPublicKey{},
+		&domain.EncryptedFile{},
+		&domain.EncryptionTask{},
+		&domain.EncryptionTaskAttempt{},
+		&domain.CiphertextObject{},
+		&domain.ProtectedKey{},
+		&domain.RSAProtectedKeyBinding{},
+		&domain.EncryptionBenchmark{},
+		&domain.OrphanStorageObject{},
+		&domain.AuditLog{},
+		&domain.AuditOutboxEvent{},
 	)
 }

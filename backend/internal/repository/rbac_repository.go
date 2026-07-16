@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"go-cpabe/backend/internal/domain"
@@ -22,7 +23,7 @@ type RBACRepository interface {
 	ListRolePermissions(ctx context.Context, tenantID uint64, roleID uint64) ([]domain.Permission, error)
 	ReplaceRolePermissions(ctx context.Context, tenantID uint64, roleID uint64, permissionCodes []string, actorID uint64) error
 	ListMemberRoles(ctx context.Context, tenantID uint64, userID uint64) ([]domain.Role, error)
-	ReplaceMemberRoles(ctx context.Context, tenantID uint64, userID uint64, roleIDs []uint64, assignedBy uint64) error
+	ReplaceMemberRoles(ctx context.Context, tenantID uint64, userID uint64, roleCodes []string, assignedBy uint64) error
 	ListTenantPermissionCodesByUser(ctx context.Context, tenantID uint64, userID uint64) ([]string, error)
 	ListPlatformPermissionCodesByUser(ctx context.Context, userID uint64) ([]string, error)
 	HasTenantPermission(ctx context.Context, tenantID uint64, userID uint64, code string) (bool, error)
@@ -214,7 +215,7 @@ func (r *GormTenantRepository) ListMemberRoles(ctx context.Context, tenantID uin
 }
 
 // ReplaceMemberRoles 在事务中全量替换成员角色，撤销旧角色时保留历史记录并允许 DO 和 DU 同时存在。
-func (r *GormTenantRepository) ReplaceMemberRoles(ctx context.Context, tenantID uint64, userID uint64, roleIDs []uint64, assignedBy uint64) error {
+func (r *GormTenantRepository) ReplaceMemberRoles(ctx context.Context, tenantID uint64, userID uint64, roleCodes []string, assignedBy uint64) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := r.lockTenantTx(ctx, tx, tenantID); err != nil {
 			return err
@@ -222,7 +223,7 @@ func (r *GormTenantRepository) ReplaceMemberRoles(ctx context.Context, tenantID 
 		if err := r.ensureActiveTenantMember(ctx, tx, tenantID, userID); err != nil {
 			return err
 		}
-		roles, err := r.listAssignableRolesForUpdateTx(ctx, tx, tenantID, roleIDs)
+		roles, err := r.listAssignableRolesForUpdateTx(ctx, tx, tenantID, roleCodes)
 		if err != nil {
 			return err
 		}
@@ -234,26 +235,27 @@ func (r *GormTenantRepository) ReplaceMemberRoles(ctx context.Context, tenantID 
 				return ErrRoleDisabled
 			}
 		}
+		roleIDs := roleIDsOf(roles)
 		if err := r.revokeMissingRolesTx(ctx, tx, tenantID, userID, roleIDs); err != nil {
 			return err
 		}
-		for _, roleID := range uniqueUint64s(roleIDs) {
+		for _, roleID := range roleIDs {
 			assignment := domain.UserRoleAssignment{
-				TenantID:          &tenantID,
-				UserID:            userID,
-				RoleID:            roleID,
-				AssignmentSource:  domain.AssignmentSourceManual,
-				AssignedBy:        &assignedBy,
-				Status:            domain.UserRoleStatusActive,
+				TenantID:         &tenantID,
+				UserID:           userID,
+				RoleID:           roleID,
+				AssignmentSource: domain.AssignmentSourceManual,
+				AssignedBy:       &assignedBy,
+				Status:           domain.UserRoleStatusActive,
 			}
 			if err := tx.Clauses(clause.OnConflict{
 				Columns: []clause.Column{{Name: "tenant_id"}, {Name: "user_id"}, {Name: "role_id"}},
 				DoUpdates: clause.Assignments(map[string]any{
 					"assignment_source": domain.AssignmentSourceManual,
-					"assigned_by":        assignedBy,
-					"status":             domain.UserRoleStatusActive,
-					"revoked_at":         nil,
-					"updated_at":         gorm.Expr("CURRENT_TIMESTAMP(3)"),
+					"assigned_by":       assignedBy,
+					"status":            domain.UserRoleStatusActive,
+					"revoked_at":        nil,
+					"updated_at":        gorm.Expr("CURRENT_TIMESTAMP(3)"),
 				}),
 			}).Create(&assignment).Error; err != nil {
 				return err
@@ -412,19 +414,25 @@ func (r *GormTenantRepository) ensureActiveTenantMember(ctx context.Context, db 
 	return nil
 }
 
-// listAssignableRolesForUpdateTx 校验待分配角色都属于系统内置租户角色或当前租户自定义角色。
-func (r *GormTenantRepository) listAssignableRolesForUpdateTx(ctx context.Context, tx *gorm.DB, tenantID uint64, roleIDs []uint64) ([]domain.Role, error) {
-	uniqueIDs := uniqueUint64s(roleIDs)
-	if len(uniqueIDs) == 0 {
+// listAssignableRolesForUpdateTx 校验待分配角色 code 都属于系统内置租户角色或当前租户自定义角色。
+func (r *GormTenantRepository) listAssignableRolesForUpdateTx(ctx context.Context, tx *gorm.DB, tenantID uint64, roleCodes []string) ([]domain.Role, error) {
+	uniqueCodes := uniqueRoleCodes(roleCodes)
+	if len(uniqueCodes) == 0 {
 		return []domain.Role{}, nil
+	}
+	for _, code := range uniqueCodes {
+		if domain.RoleCode(code) == domain.RolePlatformAdmin {
+			return nil, ErrCannotAssignPlatformRole
+		}
 	}
 	var roles []domain.Role
 	if err := tx.WithContext(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("id IN ? AND scope_type = ? AND code <> ? AND (tenant_id = 0 OR tenant_id = ?)", uniqueIDs, domain.RoleScopeTypeTenant, domain.RolePlatformAdmin, tenantID).
+		Where("code IN ? AND scope_type = ? AND code <> ? AND (tenant_id = 0 OR tenant_id = ?)", uniqueCodes, domain.RoleScopeTypeTenant, domain.RolePlatformAdmin, tenantID).
+		Order("tenant_id ASC, id ASC").
 		Find(&roles).Error; err != nil {
 		return nil, err
 	}
-	if len(roles) != len(uniqueIDs) {
+	if len(roles) != len(uniqueCodes) {
 		return nil, ErrRoleNotFound
 	}
 	return roles, nil
@@ -507,6 +515,29 @@ func uniqueStrings(values []string) []string {
 	return result
 }
 
+// uniqueRoleCodes 规范化角色 code 输入，避免大小写或空白差异绕过角色存在性校验。
+func uniqueRoleCodes(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		normalized := string(domain.RoleCode(normalizeRoleCodeString(value)))
+		if normalized == "" {
+			continue
+		}
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		result = append(result, normalized)
+	}
+	return result
+}
+
+// normalizeRoleCodeString 对角色 code 使用统一大写规则；权限 code 不调用该函数。
+func normalizeRoleCodeString(value string) string {
+	return strings.ToUpper(strings.TrimSpace(value))
+}
+
 // uniqueUint64s 对角色 ID 去重，保证全量替换语义稳定。
 func uniqueUint64s(values []uint64) []uint64 {
 	seen := make(map[uint64]struct{}, len(values))
@@ -522,4 +553,13 @@ func uniqueUint64s(values []uint64) []uint64 {
 		result = append(result, value)
 	}
 	return result
+}
+
+// roleIDsOf 提取已校验角色的 ID，并稳定去重供成员角色全量替换使用。
+func roleIDsOf(roles []domain.Role) []uint64 {
+	ids := make([]uint64, 0, len(roles))
+	for _, role := range roles {
+		ids = append(ids, role.ID)
+	}
+	return uniqueUint64s(ids)
 }

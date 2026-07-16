@@ -29,5 +29,8 @@ func main() {
 	if err := migrations.ValidateRBACMigration(context.Background(), db); err != nil {
 		log.Fatalf("RBAC 迁移验证失败: %v", err)
 	}
+	if err := migrations.ValidateEncryptionFrameworkMigration(context.Background(), db); err != nil {
+		log.Fatalf("加密框架迁移验证失败: %v", err)
+	}
 	log.Printf("数据库迁移完成，耗时 %s", time.Since(startedAt).Round(time.Millisecond))
 }

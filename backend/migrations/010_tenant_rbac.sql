@@ -299,7 +299,7 @@ BEGIN
   INSERT IGNORE INTO role_permissions (role_id, permission_id, granted_by, created_at)
   SELECT r.id, p.id, NULL, CURRENT_TIMESTAMP(3)
   FROM roles r
-  JOIN permissions p ON p.code IN ('tenant.dashboard.read', 'policy.read', 'policy.write', 'policy.publish', 'file.read', 'file.upload', 'file.manage')
+  JOIN permissions p ON p.code IN ('tenant.dashboard.read', 'policy.read', 'policy.write', 'policy.publish', 'file.read', 'file.upload', 'file.manage', 'file.decrypt.invoke')
   WHERE r.tenant_id = 0 AND r.code = 'DO';
 
   INSERT IGNORE INTO role_permissions (role_id, permission_id, granted_by, created_at)
