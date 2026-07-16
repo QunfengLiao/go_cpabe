@@ -57,7 +57,7 @@ func TestRedisTokenStoreReplaceDeviceSession(t *testing.T) {
 	if _, err := store.Get(ctx, "old-token"); err != ErrRefreshSessionNotFound {
 		t.Fatalf("expected old session removed, got %v", err)
 	}
-	if got := server.Get(UserDeviceSessionKey(7, "electron-device")); got != "new-token" {
+	if got, err := server.Get(UserDeviceSessionKey(7, "electron-device")); err != nil || got != "new-token" {
 		t.Fatalf("unexpected device index: %q", got)
 	}
 	if ttl := server.TTL(UserDeviceSessionKey(7, "electron-device")); ttl <= 0 {

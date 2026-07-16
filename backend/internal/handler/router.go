@@ -24,7 +24,11 @@ type Dependencies struct {
 	PlatformRoleResolver      middleware.PlatformRoleResolver
 	AuthManager               *auth.Manager
 	HealthService             *service.HealthService
+	EncryptionService         *service.EncryptionService
+	RSAKeyService             *service.RSAKeyService
+	EncryptedFileService      *service.EncryptedFileService
 	MaxAvatarSize             int64
+	MaxEncryptedFileSize      int64
 }
 
 // NewRouter 创建 Gin 路由，注册认证、用户、租户、平台后台和健康检查接口。
@@ -71,7 +75,6 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	tenants.POST("/:id/users", tenantHandler.AddTenantUser)
 	tenants.DELETE("/:id/users/:userId", tenantHandler.RemoveTenantUser)
 	tenants.GET("/:id/users", tenantHandler.ListTenantUsers)
-	tenants.PUT("/:id/members/:userId/role", tenantHandler.AssignTenantMemberRole)
 
 	tenantPolicies := api.Group("/tenants/:id", middleware.AuthRequired(deps.AuthManager), middleware.TenantRequired(deps.TenantService))
 	if deps.OrgAttributeService != nil {
@@ -94,6 +97,10 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	tenantPolicies.GET("/users/me/attributes", middleware.TenantPermissionRequired(deps.AuthorizationService, "tenant.org.read"), orgAttributeHandler.MyUserAttributes)
 
 	currentTenant := api.Group("/tenant", middleware.AuthRequired(deps.AuthManager), middleware.TenantRequired(deps.TenantService))
+	// 文件中心是密文仓库读取边界，只校验登录态和当前租户成员关系，不复用任何 file.* 权限中间件。
+	// 这样即使上传、删除等管理权限发生变化，租户成员仍能下载原始密文并在本地决定是否解密。
+	fileCenterTenant := api.Group("/tenant", middleware.AuthRequired(deps.AuthManager), middleware.TenantRequired(deps.TenantService))
+	currentTenant.POST("/members", middleware.TenantPermissionRequired(deps.AuthorizationService, "tenant.member.manage"), tenantHandler.CreateCurrentTenantMember)
 	if deps.TenantRoleService != nil {
 		currentTenant.GET("/permissions", middleware.TenantPermissionRequired(deps.AuthorizationService, "tenant.role.read"), rbacHandler.Permissions)
 		currentTenant.GET("/roles", middleware.TenantPermissionRequired(deps.AuthorizationService, "tenant.role.read"), rbacHandler.Roles)
@@ -118,6 +125,36 @@ func NewRouter(deps Dependencies) *gin.Engine {
 		currentTenant.PUT("/org-members/:id/primary", middleware.TenantPermissionRequired(deps.AuthorizationService, "tenant.org.manage"), orgManagementHandler.SetOrgMemberPrimary)
 		currentTenant.PUT("/org-members/:id/positions", middleware.TenantPermissionRequired(deps.AuthorizationService, "tenant.org.manage"), orgManagementHandler.SetOrgMemberPositions)
 		currentTenant.DELETE("/org-members/:id", middleware.TenantPermissionRequired(deps.AuthorizationService, "tenant.org.manage"), orgManagementHandler.RemoveOrgMember)
+	}
+	if deps.EncryptionService != nil && deps.RSAKeyService != nil && deps.EncryptedFileService != nil {
+		encryptionHandler := NewEncryptionHandler(deps.EncryptionService, deps.MaxEncryptedFileSize)
+		rsaKeyHandler := NewRSAKeyHandler(deps.RSAKeyService)
+		encryptedFileHandler := NewEncryptedFileHandler(deps.EncryptedFileService)
+		currentTenant.GET("/encryption-algorithms", middleware.TenantPermissionRequired(deps.AuthorizationService, "file.upload"), encryptionHandler.Algorithms)
+		currentTenant.GET("/rsa-recipients", middleware.TenantPermissionRequired(deps.AuthorizationService, "file.upload"), rsaKeyHandler.Recipients)
+		currentTenant.GET("/rsa-recipients/:userId/public-keys", middleware.TenantPermissionRequired(deps.AuthorizationService, "file.upload"), rsaKeyHandler.RecipientKeys)
+		currentTenant.GET("/me/rsa-public-keys", middleware.TenantPermissionRequired(deps.AuthorizationService, "crypto.key.self.manage"), rsaKeyHandler.MyKeys)
+		currentTenant.POST("/me/rsa-public-keys", middleware.TenantPermissionRequired(deps.AuthorizationService, "crypto.key.self.manage"), rsaKeyHandler.RegisterMyKey)
+		currentTenant.PATCH("/rsa-public-keys/:keyId/status", middleware.TenantPermissionRequired(deps.AuthorizationService, "crypto.key.manage"), rsaKeyHandler.UpdateStatus)
+		currentTenant.POST("/encryption-tasks", middleware.TenantPermissionRequired(deps.AuthorizationService, "file.upload"), encryptionHandler.CreateTask)
+		currentTenant.GET("/encryption-tasks/:taskId", middleware.TenantPermissionRequired(deps.AuthorizationService, "file.upload"), encryptionHandler.Task)
+		currentTenant.POST("/encryption-tasks/:taskId/attempts/:attemptId/progress", middleware.TenantPermissionRequired(deps.AuthorizationService, "file.upload"), encryptionHandler.Progress)
+		currentTenant.PUT("/encryption-tasks/:taskId/attempts/:attemptId/ciphertext", middleware.TenantPermissionRequired(deps.AuthorizationService, "file.upload"), encryptionHandler.UploadCiphertext)
+		currentTenant.POST("/encryption-tasks/:taskId/attempts/:attemptId/complete", middleware.TenantPermissionRequired(deps.AuthorizationService, "file.upload"), encryptionHandler.Complete)
+		currentTenant.POST("/encryption-tasks/:taskId/attempts/:attemptId/fail", middleware.TenantPermissionRequired(deps.AuthorizationService, "file.upload"), encryptionHandler.Fail)
+		currentTenant.POST("/encryption-tasks/:taskId/cancel", middleware.TenantPermissionRequired(deps.AuthorizationService, "file.manage"), encryptionHandler.Cancel)
+		currentTenant.POST("/encryption-tasks/:taskId/retry", middleware.TenantPermissionRequired(deps.AuthorizationService, "file.manage"), encryptionHandler.Retry)
+		// 文件仓库只依赖 AuthRequired + TenantRequired：有效租户成员可以读取和下载密文，密钥恢复完全由客户端本地私钥决定。
+		fileCenterTenant.GET("/files", encryptedFileHandler.ListFileCenter)
+		fileCenterTenant.GET("/files/:fileId", encryptedFileHandler.FileCenterDetail)
+		fileCenterTenant.GET("/files/:fileId/ciphertext", encryptedFileHandler.DownloadFileCenter)
+		fileCenterTenant.GET("/files/:fileId/decryption-material", encryptedFileHandler.OwnDecryptionMaterial)
+		currentTenant.GET("/encrypted-files", encryptedFileHandler.List)
+		currentTenant.GET("/encrypted-files/:fileId", encryptedFileHandler.Detail)
+		currentTenant.GET("/encrypted-files/:fileId/ciphertext", encryptedFileHandler.Download)
+		currentTenant.GET("/received-files", encryptedFileHandler.ListReceived)
+		currentTenant.GET("/received-files/:fileId/decryption-material", encryptedFileHandler.ReceivedMaterial)
+		currentTenant.GET("/received-files/:fileId/ciphertext", encryptedFileHandler.DownloadReceived)
 	}
 
 	platform := api.Group("/platform", middleware.AuthRequired(deps.AuthManager), middleware.PlatformAdminRequired(deps.PlatformRoleResolver))

@@ -56,8 +56,8 @@ func TestBootstrapDefaultTenantIsIdempotent(t *testing.T) {
 	}
 }
 
-// TestPlatformAdminCanEnterAnyActiveTenant 验证平台管理员可进入任意启用租户，但不会被写入租户成员表。
-func TestPlatformAdminCanEnterAnyActiveTenant(t *testing.T) {
+// TestPlatformAdminCannotEnterTenantWithoutMembership 验证平台治理身份不会绕过租户业务成员边界。
+func TestPlatformAdminCannotEnterTenantWithoutMembership(t *testing.T) {
 	users := newMemoryUserRepo()
 	tenantRepo := newMemoryTenantRepo()
 	svc := NewTenantService(tenantRepo, users)
@@ -77,13 +77,11 @@ func TestPlatformAdminCanEnterAnyActiveTenant(t *testing.T) {
 	if err := tenantRepo.EnsureUserRole(ctx, nil, 99, domain.RolePlatformAdmin); err != nil {
 		t.Fatalf("grant platform admin: %v", err)
 	}
+	users.byID[99] = &domain.User{ID: 99, Email: "platform-context@example.com", Nickname: "平台管理员", Status: domain.StatusActive}
+	users.byEmail["platform-context@example.com"] = 99
 
-	switched, err := svc.SwitchTenant(ctx, 99, labB.ID)
-	if err != nil {
-		t.Fatalf("switch platform admin: %v", err)
-	}
-	if switched.CurrentTenantID != labB.ID || len(switched.Roles) != 1 || switched.Roles[0] != domain.RolePlatformAdmin {
-		t.Fatalf("unexpected switch result: %+v", switched)
+	if _, err := svc.SwitchTenant(ctx, 99, labB.ID); !errors.Is(err, response.ErrTenantMemberForbidden) {
+		t.Fatalf("platform admin without membership should be rejected, got %v", err)
 	}
 	if len(tenantRepo.members) != 0 {
 		t.Fatalf("platform admin must not be auto-added to tenant_users, got %d members", len(tenantRepo.members))
@@ -158,53 +156,80 @@ func TestNormalUserCannotEnterForeignTenant(t *testing.T) {
 	}
 }
 
-// TestAssignTenantMemberBusinessRole 验证租户管理员可为本租户成员分配并替换普通业务角色。
-func TestAssignTenantMemberBusinessRole(t *testing.T) {
+// TestCreateTenantMemberCreatesAccountWithTemporaryPassword 验证新成员只保存初始密码摘要、强制首次改密并获得 DO/DU 角色。
+func TestCreateTenantMemberCreatesAccountWithTemporaryPassword(t *testing.T) {
 	users := newMemoryUserRepo()
 	tenantRepo := newMemoryTenantRepo()
 	svc := NewTenantService(tenantRepo, users)
 	ctx := context.Background()
 	tenant := seedTenantRoleAssignmentFixture(t, ctx, users, tenantRepo, svc)
+	audit := &tenantMemberAuditStub{}
+	svc.SetAuditRecorder(audit)
 
-	member, err := svc.AssignTenantMemberBusinessRole(ctx, 1, tenant.ID, 2, AssignTenantMemberRoleInput{RoleCode: "DATA_OWNER"})
+	result, err := svc.CreateTenantMember(ctx, 1, tenant.ID, CreateTenantMemberInput{Username: "new.du", DisplayName: "新成员", Email: "NEW.DU@example.com", Phone: "13800000000", Roles: []domain.RoleCode{domain.RoleDU, domain.RoleDO, domain.RoleDU}})
 	if err != nil {
-		t.Fatalf("assign owner: %v", err)
+		t.Fatal(err)
 	}
-	if len(member.Roles) != 1 || member.Roles[0] != domain.RoleDO {
-		t.Fatalf("expected DO role, got %+v", member.Roles)
+	if !result.CreatedUser || result.TemporaryPassword != defaultTenantMemberPassword || len(result.Member.Roles) != 2 {
+		t.Fatalf("unexpected result: %+v", result)
 	}
-	member, err = svc.AssignTenantMemberBusinessRole(ctx, 1, tenant.ID, 2, AssignTenantMemberRoleInput{RoleCode: "DATA_VISITOR"})
-	if err != nil {
-		t.Fatalf("assign visitor: %v", err)
+	user, err := users.FindByEmail(ctx, "new.du@example.com")
+	if err != nil || !user.MustChangePassword || user.PasswordHash == defaultTenantMemberPassword {
+		t.Fatalf("unsafe created user: %+v err=%v", user, err)
 	}
-	if len(member.Roles) != 1 || member.Roles[0] != domain.RoleDU {
-		t.Fatalf("expected DU role only after replace, got %+v", member.Roles)
+	if !auth.CheckPassword(defaultTenantMemberPassword, user.PasswordHash) {
+		t.Fatal("temporary password does not match hash")
 	}
-	if _, err := svc.AssignTenantMemberBusinessRole(ctx, 1, tenant.ID, 2, AssignTenantMemberRoleInput{RoleCode: "TENANT_ADMIN"}); !errors.Is(err, response.ErrInvalidRole) {
-		t.Fatalf("expected invalid role, got %v", err)
+	if len(audit.events) != 1 || audit.events[0].Action != "tenant_member.account_created" {
+		t.Fatalf("missing audit: %+v", audit.events)
 	}
 }
 
-// TestAssignTenantMemberBusinessRoleRejectsForbiddenActors 验证平台管理员、普通成员和自我修改场景均被拒绝。
-func TestAssignTenantMemberBusinessRoleRejectsForbiddenActors(t *testing.T) {
+// TestCreateTenantMemberReusesAccountWithoutResettingPassword 验证已有邮箱只增加租户关系和角色，不覆盖全局账号资料或密码。
+func TestCreateTenantMemberReusesAccountWithoutResettingPassword(t *testing.T) {
 	users := newMemoryUserRepo()
 	tenantRepo := newMemoryTenantRepo()
 	svc := NewTenantService(tenantRepo, users)
 	ctx := context.Background()
 	tenant := seedTenantRoleAssignmentFixture(t, ctx, users, tenantRepo, svc)
-	if err := tenantRepo.EnsureUserRole(ctx, nil, 3, domain.RolePlatformAdmin); err != nil {
-		t.Fatalf("platform role: %v", err)
+	hash, _ := auth.HashPassword("Original9!")
+	existing := &domain.User{Username: "original", Email: "existing@example.com", PasswordHash: hash, Nickname: "原姓名", Phone: "10086", Role: domain.RoleDataUser, Status: domain.StatusActive}
+	if err := users.Create(ctx, existing); err != nil {
+		t.Fatal(err)
 	}
 
-	if _, err := svc.AssignTenantMemberBusinessRole(ctx, 3, tenant.ID, 2, AssignTenantMemberRoleInput{RoleCode: "DATA_OWNER"}); !errors.Is(err, response.ErrTenantRoleAssignPlatformForbidden) {
-		t.Fatalf("expected platform forbidden, got %v", err)
+	result, err := svc.CreateTenantMember(ctx, 1, tenant.ID, CreateTenantMemberInput{Username: "changed", DisplayName: "篡改姓名", Email: existing.Email, Phone: "changed", Roles: []domain.RoleCode{domain.RoleDU}})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := svc.AssignTenantMemberBusinessRole(ctx, 2, tenant.ID, 3, AssignTenantMemberRoleInput{RoleCode: "DATA_OWNER"}); !errors.Is(err, response.ErrTenantPermissionDenied) {
-		t.Fatalf("expected permission denied, got %v", err)
+	stored, _ := users.FindByEmail(ctx, existing.Email)
+	if result.CreatedUser || result.TemporaryPassword != "" || stored.Username != "original" || stored.Nickname != "原姓名" || stored.Phone != "10086" || stored.PasswordHash != hash {
+		t.Fatalf("existing account was modified: result=%+v user=%+v", result, stored)
 	}
-	if _, err := svc.AssignTenantMemberBusinessRole(ctx, 1, tenant.ID, 1, AssignTenantMemberRoleInput{RoleCode: "DATA_VISITOR"}); !errors.Is(err, response.ErrTenantAdminSelfRoleForbidden) {
-		t.Fatalf("expected self role forbidden, got %v", err)
+}
+
+// TestCreateTenantMemberRejectsInvalidRoleBeforeWrite 验证管理员和空角色不能通过普通成员入口写入账号。
+func TestCreateTenantMemberRejectsInvalidRoleBeforeWrite(t *testing.T) {
+	users := newMemoryUserRepo()
+	tenantRepo := newMemoryTenantRepo()
+	svc := NewTenantService(tenantRepo, users)
+	ctx := context.Background()
+	tenant := seedTenantRoleAssignmentFixture(t, ctx, users, tenantRepo, svc)
+	before, _ := users.CountUsers(ctx)
+	_, err := svc.CreateTenantMember(ctx, 1, tenant.ID, CreateTenantMemberInput{Username: "bad.role", DisplayName: "非法角色", Email: "bad@example.com", Roles: []domain.RoleCode{domain.RoleTenantAdmin}})
+	after, _ := users.CountUsers(ctx)
+	if !errors.Is(err, response.ErrInvalidRole) || after != before {
+		t.Fatalf("error=%v before=%d after=%d", err, before, after)
 	}
+}
+
+// tenantMemberAuditStub 收集成员创建安全事件，验证审计不影响密码和租户断言。
+type tenantMemberAuditStub struct{ events []AuditEvent }
+
+// Record 保存审计事件副本；测试只检查动作和租户范围，不接触敏感密码材料。
+func (s *tenantMemberAuditStub) Record(_ context.Context, event AuditEvent) error {
+	s.events = append(s.events, event)
+	return nil
 }
 
 // seedTenantRoleAssignmentFixture 创建租户管理员、普通成员和平台用户，用于角色分配服务测试。

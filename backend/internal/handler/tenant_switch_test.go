@@ -38,18 +38,15 @@ func TestSwitchTenantEndpoint(t *testing.T) {
 	}
 }
 
-// TestPlatformAdminSwitchesToAnyTenantWithoutMembership 验证平台管理员可切换任意启用租户且不会自动成为成员。
-func TestPlatformAdminSwitchesToAnyTenantWithoutMembership(t *testing.T) {
+// TestPlatformAdminCannotSwitchTenantWithoutMembership 验证平台身份不会自动获得租户业务上下文。
+func TestPlatformAdminCannotSwitchTenantWithoutMembership(t *testing.T) {
 	app := newTestApp()
 	platformAccess := createPlatformAdminAndLogin(t, app)
 	other := createTenantForTest(t, app, "平台可见租户", "platform-visible")
 
 	switched := performJSON(app.router, http.MethodPost, "/api/v1/me/switch-tenant", map[string]any{"tenant_id": other.ID}, platformAccess)
-	if switched.Code != http.StatusOK {
+	if switched.Code != http.StatusForbidden || !bytesContains(switched.Body.String(), "TENANT_MEMBER_FORBIDDEN") {
 		t.Fatalf("platform switch status=%d body=%s", switched.Code, switched.Body.String())
-	}
-	if !bytesContains(switched.Body.String(), "PLATFORM_ADMIN") || bytesContains(switched.Body.String(), "TENANT_ADMIN") {
-		t.Fatalf("platform switch should keep platform role only: %s", switched.Body.String())
 	}
 	platformUser, err := app.repo.FindByEmail(nil, "platform@example.com")
 	if err != nil {

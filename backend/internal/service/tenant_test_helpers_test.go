@@ -337,19 +337,6 @@ func (r *memoryTenantRepo) RemoveUserRole(_ context.Context, tenantID *uint64, u
 	return nil
 }
 
-// ReplaceTenantBusinessRole 在测试仓储中模拟旧接口的兼容追加行为，避免再次制造 DO/DU 互斥。
-func (r *memoryTenantRepo) ReplaceTenantBusinessRole(_ context.Context, tenantID uint64, userID uint64, roleCode domain.RoleCode) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	roleID, ok := r.roleCodes[roleCode]
-	if !ok {
-		return repository.ErrRoleNotFound
-	}
-	r.assignments[memoryTenantRoleKey(&tenantID, userID, roleID)] = &domain.UserRoleAssignment{ID: r.nextAssign, TenantID: &tenantID, UserID: userID, RoleID: roleID, AssignmentSource: domain.AssignmentSourceManual, Status: domain.UserRoleStatusActive}
-	r.nextAssign++
-	return nil
-}
-
 // ListRoleCodesByUserTenant 返回测试仓储中用户在指定租户内的角色编码。
 func (r *memoryTenantRepo) ListRoleCodesByUserTenant(_ context.Context, userID uint64, tenantID uint64) ([]domain.RoleCode, error) {
 	r.mu.Lock()

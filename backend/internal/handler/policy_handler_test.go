@@ -375,7 +375,7 @@ func TestPolicyHandlerRejectsCrossTenantAndPlatformTenantWrite(t *testing.T) {
 		t.Fatalf("path/header tenant mismatch status=%d body=%s", mismatch.Code, mismatch.Body.String())
 	}
 	platformWrite := performJSONWithTenant(app.router, http.MethodPost, "/api/v1/tenants/1/access-policies", map[string]any{"name": "平台写入", "policyTreeJson": validPolicyTreeObject()}, platformAccess, 1)
-	if platformWrite.Code != http.StatusForbidden || !bytesContains(platformWrite.Body.String(), "ACCESS_POLICY_FORBIDDEN") {
+	if platformWrite.Code != http.StatusForbidden || !bytesContains(platformWrite.Body.String(), "TENANT_MEMBER_FORBIDDEN") {
 		t.Fatalf("platform tenant write status=%d body=%s", platformWrite.Code, platformWrite.Body.String())
 	}
 }

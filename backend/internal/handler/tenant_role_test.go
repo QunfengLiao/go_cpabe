@@ -8,45 +8,50 @@ import (
 	"go-cpabe/backend/internal/pkg/auth"
 )
 
-// TestTenantMemberRoleEndpoint 验证租户管理员可通过接口分配并替换普通业务角色。
+// TestTenantMemberRoleEndpointRemoved 验证旧单角色成员角色接口已经从当前租户授权链路中移除。
+func TestTenantMemberRoleEndpointRemoved(t *testing.T) {
+	app := newTestApp()
+	adminAccess := createAdminAndLogin(t, app)
+
+	removed := performJSON(app.router, http.MethodPut, "/api/v1/tenants/1/members/2/role", map[string]any{"roleCode": "DATA_OWNER"}, adminAccess)
+	if removed.Code != http.StatusNotFound {
+		t.Fatalf("old member role endpoint should be removed, status=%d body=%s", removed.Code, removed.Body.String())
+	}
+}
+
+// TestTenantMemberRolesEndpointReplacesFullRoleCodeSet 验证当前租户成员角色接口按 role code 集合全量替换。
 func TestTenantMemberRoleEndpoint(t *testing.T) {
 	app := newTestApp()
 	adminAccess := createAdminAndLogin(t, app)
 	memberID := createTenantMemberForRoleTest(t, app, 1, "member-role@example.com")
 
-	owner := performJSON(app.router, http.MethodPut, "/api/v1/tenants/1/members/2/role", map[string]any{"roleCode": "DATA_OWNER"}, adminAccess)
+	owner := performJSONWithTenant(app.router, http.MethodPut, "/api/v1/tenant/members/2/roles", map[string]any{"roleCodes": []string{"DO"}}, adminAccess, 1)
 	if owner.Code != http.StatusOK || !bytesContains(owner.Body.String(), "DO") {
 		t.Fatalf("assign owner status=%d body=%s", owner.Code, owner.Body.String())
 	}
-	visitor := performJSON(app.router, http.MethodPut, "/api/v1/tenants/1/members/2/role", map[string]any{"roleCode": "DATA_VISITOR"}, adminAccess)
-	if visitor.Code != http.StatusOK || !bytesContains(visitor.Body.String(), "DU") || bytesContains(visitor.Body.String(), "DO") {
-		t.Fatalf("assign visitor should replace owner, member=%d status=%d body=%s", memberID, visitor.Code, visitor.Body.String())
+	visitor := performJSONWithTenant(app.router, http.MethodPut, "/api/v1/tenant/members/2/roles", map[string]any{"roleCodes": []string{"DO", "DU"}}, adminAccess, 1)
+	if visitor.Code != http.StatusOK || !bytesContains(visitor.Body.String(), "DU") || !bytesContains(visitor.Body.String(), "DO") {
+		t.Fatalf("assign visitor should preserve submitted owner capability, member=%d status=%d body=%s", memberID, visitor.Code, visitor.Body.String())
+	}
+	replaced := performJSONWithTenant(app.router, http.MethodPut, "/api/v1/tenant/members/2/roles", map[string]any{"roleCodes": []string{"DU"}}, adminAccess, 1)
+	if replaced.Code != http.StatusOK || bytesContains(replaced.Body.String(), "DO") || !bytesContains(replaced.Body.String(), "DU") {
+		t.Fatalf("full replacement should remove DO and keep DU, status=%d body=%s", replaced.Code, replaced.Body.String())
 	}
 }
 
-// TestTenantMemberRoleEndpointRejectsForbiddenActors 验证平台管理员、普通成员和非法角色不能调用普通角色分配接口。
+// TestTenantMemberRoleEndpointRejectsForbiddenActors 验证平台角色和不存在角色不能通过当前租户成员角色接口分配。
 func TestTenantMemberRoleEndpointRejectsForbiddenActors(t *testing.T) {
 	app := newTestApp()
 	adminAccess := createAdminAndLogin(t, app)
 	memberID := createTenantMemberForRoleTest(t, app, 1, "member-denied@example.com")
-	memberAccess := loginExistingUser(t, app, "member-denied@example.com")
-	platformAccess := createPlatformAdminAndLogin(t, app)
 
-	platform := performJSON(app.router, http.MethodPut, "/api/v1/tenants/1/members/2/role", map[string]any{"roleCode": "DATA_OWNER"}, platformAccess)
-	if platform.Code != http.StatusForbidden || !bytesContains(platform.Body.String(), "TENANT_ROLE_ASSIGN_PLATFORM_FORBIDDEN") {
-		t.Fatalf("platform status=%d body=%s", platform.Code, platform.Body.String())
-	}
-	ordinary := performJSON(app.router, http.MethodPut, "/api/v1/tenants/1/members/1/role", map[string]any{"roleCode": "DATA_OWNER"}, memberAccess)
-	if ordinary.Code != http.StatusForbidden || !bytesContains(ordinary.Body.String(), "TENANT_PERMISSION_DENIED") {
-		t.Fatalf("ordinary status=%d body=%s", ordinary.Code, ordinary.Body.String())
-	}
-	invalid := performJSON(app.router, http.MethodPut, "/api/v1/tenants/1/members/2/role", map[string]any{"roleCode": "TENANT_ADMIN"}, adminAccess)
-	if invalid.Code != http.StatusBadRequest || !bytesContains(invalid.Body.String(), "INVALID_ROLE") {
+	invalid := performJSONWithTenant(app.router, http.MethodPut, "/api/v1/tenant/members/2/roles", map[string]any{"roleCodes": []string{"MISSING_ROLE"}}, adminAccess, 1)
+	if invalid.Code != http.StatusNotFound || !bytesContains(invalid.Body.String(), "ROLE_NOT_FOUND") {
 		t.Fatalf("invalid status=%d body=%s", invalid.Code, invalid.Body.String())
 	}
-	self := performJSON(app.router, http.MethodPut, "/api/v1/tenants/1/members/1/role", map[string]any{"roleCode": "DATA_VISITOR"}, adminAccess)
-	if self.Code != http.StatusForbidden || !bytesContains(self.Body.String(), "TENANT_ADMIN_SELF_ROLE_FORBIDDEN") {
-		t.Fatalf("self status=%d body=%s member=%d", self.Code, self.Body.String(), memberID)
+	platform := performJSONWithTenant(app.router, http.MethodPut, "/api/v1/tenant/members/2/roles", map[string]any{"roleCodes": []string{"PLATFORM_ADMIN"}}, adminAccess, 1)
+	if platform.Code != http.StatusBadRequest || !bytesContains(platform.Body.String(), "CANNOT_ASSIGN_PLATFORM_ROLE") {
+		t.Fatalf("platform status=%d body=%s member=%d", platform.Code, platform.Body.String(), memberID)
 	}
 }
 

@@ -368,8 +368,8 @@ func TestPolicyServiceManagesTemplates(t *testing.T) {
 	}
 }
 
-// TestPolicyServiceRestrictsOwnerUpdatesAndDeletes 验证 DATA_OWNER 只能更新和删除自己创建的策略。
-func TestPolicyServiceRestrictsOwnerUpdatesAndDeletes(t *testing.T) {
+// TestPolicyServiceUsesPermissionForUpdatesAndDeletes 验证 policy.write 按租户权限授权而非隐式所有者特权。
+func TestPolicyServiceUsesPermissionForUpdatesAndDeletes(t *testing.T) {
 	ctx := context.Background()
 	svc := newPolicyServiceForTest(t, ctx)
 	owner := PolicyActor{UserID: 7, TenantID: 3, Roles: []domain.RoleCode{domain.RoleDO}}
@@ -386,17 +386,14 @@ func TestPolicyServiceRestrictsOwnerUpdatesAndDeletes(t *testing.T) {
 	if updated.Name != "更新策略" || updated.Status != domain.PolicyStatusDisabled {
 		t.Fatalf("unexpected updated policy: %+v", updated)
 	}
-	if _, err := svc.UpdateAccessPolicy(ctx, otherOwner, policy.ID, AccessPolicyInput{Name: "越权", PolicyTreeJSON: validPolicyTreeJSON()}); !errors.Is(err, response.ErrAccessPolicyNotFound) {
-		t.Fatalf("other DATA_OWNER should not update policy, got %v", err)
+	if _, err := svc.UpdateAccessPolicy(ctx, otherOwner, policy.ID, AccessPolicyInput{Name: "协作更新", PolicyTreeJSON: validPolicyTreeJSON()}); err != nil {
+		t.Fatalf("other DATA_OWNER with policy.write should update policy, got %v", err)
 	}
 	if _, err := svc.UpdateAccessPolicy(ctx, PolicyActor{UserID: 9, TenantID: 3, Roles: []domain.RoleCode{domain.RoleTenantAdmin}}, policy.ID, AccessPolicyInput{Name: "管理员写", PolicyTreeJSON: validPolicyTreeJSON()}); !errors.Is(err, response.ErrAccessPolicyForbidden) {
 		t.Fatalf("TENANT_ADMIN should not update policy, got %v", err)
 	}
-	if err := svc.DeleteAccessPolicy(ctx, otherOwner, policy.ID); !errors.Is(err, response.ErrAccessPolicyNotFound) {
-		t.Fatalf("other DATA_OWNER should not delete policy, got %v", err)
-	}
-	if err := svc.DeleteAccessPolicy(ctx, owner, policy.ID); err != nil {
-		t.Fatalf("owner delete: %v", err)
+	if err := svc.DeleteAccessPolicy(ctx, otherOwner, policy.ID); err != nil {
+		t.Fatalf("other DATA_OWNER with policy.write should delete policy: %v", err)
 	}
 	if _, err := svc.AccessPolicyDetail(ctx, owner, policy.ID); !errors.Is(err, response.ErrAccessPolicyNotFound) {
 		t.Fatalf("deleted policy should be hidden, got %v", err)

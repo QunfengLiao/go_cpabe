@@ -13,13 +13,6 @@ func TestTenantAdminEndpoints(t *testing.T) {
 	app := newTestApp()
 	adminAccess := createAdminAndLogin(t, app)
 
-	created := performJSON(app.router, http.MethodPost, "/api/v1/tenants", map[string]any{
-		"name": "实验室 A", "code": "lab-a", "status": "enabled", "description": "测试租户",
-	}, adminAccess)
-	if created.Code != http.StatusCreated {
-		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
-	}
-
 	list := performJSON(app.router, http.MethodGet, "/api/v1/tenants", nil, adminAccess)
 	if list.Code != http.StatusOK {
 		t.Fatalf("list status=%d body=%s", list.Code, list.Body.String())
@@ -36,9 +29,9 @@ func TestTenantAdminEndpoints(t *testing.T) {
 		t.Fatalf("users status=%d body=%s", users.Code, users.Body.String())
 	}
 
-	disabled := performJSON(app.router, http.MethodPatch, "/api/v1/tenants/1/disable", nil, adminAccess)
-	if disabled.Code != http.StatusOK {
-		t.Fatalf("disable status=%d body=%s", disabled.Code, disabled.Body.String())
+	platformOnly := performJSON(app.router, http.MethodPatch, "/api/v1/tenants/1/disable", nil, adminAccess)
+	if platformOnly.Code != http.StatusForbidden {
+		t.Fatalf("tenant lifecycle should require platform role, status=%d body=%s", platformOnly.Code, platformOnly.Body.String())
 	}
 	denied := performJSON(app.router, http.MethodPost, "/api/v1/me/switch-tenant", map[string]any{"tenant_id": 1}, access)
 	if denied.Code != http.StatusForbidden {

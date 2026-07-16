@@ -93,7 +93,7 @@ type RemoveOrgMemberInput struct {
 
 // OrgUnitMutationResult 表示部门写操作后返回的部门和属性值。
 type OrgUnitMutationResult struct {
-	OrgUnit        domain.TenantOrgUnit          `json:"orgUnit"`
+	OrgUnit        domain.TenantOrgUnit             `json:"orgUnit"`
 	AttributeValue *domain.OrgUnitAttributeValueDTO `json:"attributeValue,omitempty"`
 }
 
@@ -160,14 +160,14 @@ func (s *OrgManagementService) CreateOrgUnit(ctx context.Context, actor OrgManag
 			level = parent.Level + 1
 		}
 		unit := domain.TenantOrgUnit{
-			TenantID:   actor.TenantID,
-			ParentID:   input.ParentID,
-			Code:       code,
-			Name:       name,
-			Path:       joinOrgPath(parentPath, code),
-			Level:      level,
-			SortOrder:  input.SortOrder,
-			Status:     domain.OrgUnitStatusEnabled,
+			TenantID:  actor.TenantID,
+			ParentID:  input.ParentID,
+			Code:      code,
+			Name:      name,
+			Path:      joinOrgPath(parentPath, code),
+			Level:     level,
+			SortOrder: input.SortOrder,
+			Status:    domain.OrgUnitStatusEnabled,
 		}
 		if err := tx.CreateOrgUnit(ctx, &unit); err != nil {
 			return err

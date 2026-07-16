@@ -38,7 +38,7 @@ type replaceRolePermissionsRequest struct {
 
 // replaceMemberRolesRequest 是全量替换成员角色集合的请求体。
 type replaceMemberRolesRequest struct {
-	RoleIDs []uint64 `json:"roleIds"`
+	RoleCodes []string `json:"roleCodes"`
 }
 
 // Permissions 返回租户自定义角色可选择的有效租户权限目录。
@@ -226,7 +226,7 @@ func (h *RBACHandler) ReplaceMemberRoles(c *gin.Context) {
 		response.Fail(c, response.ErrBadRequest)
 		return
 	}
-	result, err := h.service.ReplaceMemberRoles(c.Request.Context(), tenantID, userID, actorID, service.ReplaceMemberRolesInput{RoleIDs: req.RoleIDs})
+	result, err := h.service.ReplaceMemberRoles(c.Request.Context(), tenantID, userID, actorID, service.ReplaceMemberRolesInput{RoleCodes: req.RoleCodes})
 	if err != nil {
 		response.Fail(c, err)
 		return

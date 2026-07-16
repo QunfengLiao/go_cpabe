@@ -37,7 +37,7 @@ type ReplaceRolePermissionsInput struct {
 
 // ReplaceMemberRolesInput 表示全量替换租户成员角色集合的请求。
 type ReplaceMemberRolesInput struct {
-	RoleIDs []uint64
+	RoleCodes []string
 }
 
 // NewTenantRoleService 创建租户 RBAC 角色服务。
@@ -77,19 +77,22 @@ func (s *TenantRoleService) CreateRole(ctx context.Context, tenantID uint64, act
 	if tenantID == 0 || code == "" || name == "" {
 		return domain.TenantRoleDTO{}, response.ErrBadRequest
 	}
+	if domain.RoleCode(code).Valid() {
+		return domain.TenantRoleDTO{}, response.ErrBuiltinRoleImmutable
+	}
 	createdBy := actorID
 	role := domain.Role{
-		TenantID:      tenantID,
-		Code:          domain.RoleCode(code),
-		Name:          name,
-		Description:   strings.TrimSpace(input.Description),
-		Scope:         domain.RoleScopeTenant,
-		ScopeType:     domain.RoleScopeTypeTenant,
-		RoleCategory:  domain.RoleCategoryBusiness,
-		IsBuiltin:     false,
-		Status:        domain.RoleStatusActive,
-		CreatedBy:     &createdBy,
-		UpdatedBy:     &createdBy,
+		TenantID:     tenantID,
+		Code:         domain.RoleCode(code),
+		Name:         name,
+		Description:  strings.TrimSpace(input.Description),
+		Scope:        domain.RoleScopeTenant,
+		ScopeType:    domain.RoleScopeTypeTenant,
+		RoleCategory: domain.RoleCategoryBusiness,
+		IsBuiltin:    false,
+		Status:       domain.RoleStatusActive,
+		CreatedBy:    &createdBy,
+		UpdatedBy:    &createdBy,
 	}
 	created, err := s.rbac.CreateTenantCustomRole(ctx, role, input.PermissionCodes)
 	if err != nil {
@@ -167,9 +170,9 @@ func (s *TenantRoleService) GetMemberRoles(ctx context.Context, tenantID uint64,
 	return domain.MemberRoleDTO{TenantID: tenantID, UserID: userID, Roles: toTenantRoleDTOs(roles), Permissions: permissions}, nil
 }
 
-// ReplaceMemberRoles 全量替换指定成员角色集合，Repository 负责事务、角色范围和最后管理员保护。
+// ReplaceMemberRoles 全量替换指定成员角色 code 集合，Repository 负责事务、角色范围和最后管理员保护。
 func (s *TenantRoleService) ReplaceMemberRoles(ctx context.Context, tenantID uint64, userID uint64, actorID uint64, input ReplaceMemberRolesInput) (domain.MemberRoleDTO, error) {
-	if err := s.rbac.ReplaceMemberRoles(ctx, tenantID, userID, input.RoleIDs, actorID); err != nil {
+	if err := s.rbac.ReplaceMemberRoles(ctx, tenantID, userID, input.RoleCodes, actorID); err != nil {
 		return domain.MemberRoleDTO{}, mapRBACError(err)
 	}
 	return s.GetMemberRoles(ctx, tenantID, userID)

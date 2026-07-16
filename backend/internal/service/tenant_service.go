@@ -3,19 +3,27 @@ package service
 import (
 	"context"
 	"errors"
+	"regexp"
 	"strings"
 	"time"
 
 	"go-cpabe/backend/internal/domain"
+	"go-cpabe/backend/internal/pkg/auth"
 	"go-cpabe/backend/internal/pkg/response"
+	"go-cpabe/backend/internal/pkg/validator"
 	"go-cpabe/backend/internal/repository"
 )
+
+const defaultTenantMemberPassword = "lqf999.."
+
+var tenantMemberUsernamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]{3,64}$`)
 
 // TenantService 负责普通租户上下文、成员管理和旧角色迁移逻辑。
 type TenantService struct {
 	tenants       repository.TenantRepository
 	users         repository.UserRepository
 	authorization *AuthorizationService
+	audit         AuditRecorder
 }
 
 // CreateTenantInput 表示创建租户时允许提交的业务字段。
@@ -32,9 +40,13 @@ type AddTenantUserInput struct {
 	Roles  []domain.RoleCode
 }
 
-// AssignTenantMemberRoleInput 表示租户管理员为成员保存普通业务角色的输入。
-type AssignTenantMemberRoleInput struct {
-	RoleCode string
+// CreateTenantMemberInput 表示租户管理员创建或复用普通成员账号的受控输入。
+type CreateTenantMemberInput struct {
+	Username    string
+	DisplayName string
+	Email       string
+	Phone       string
+	Roles       []domain.RoleCode
 }
 
 // demoTenants 是开发演示环境默认写入的租户集合。
@@ -47,12 +59,21 @@ var demoTenants = []domain.Tenant{
 
 // NewTenantService 创建租户服务，依赖租户仓储和用户仓储完成权限校验。
 func NewTenantService(tenants repository.TenantRepository, users repository.UserRepository) *TenantService {
-	return &TenantService{tenants: tenants, users: users}
+	return &TenantService{tenants: tenants, users: users, audit: NoopAuditRecorder{}}
 }
 
 // SetAuthorizationService 注入统一授权服务；保留 setter 是为了避免 AuthorizationService 反向依赖 TenantService 形成循环。
 func (s *TenantService) SetAuthorizationService(authorization *AuthorizationService) {
 	s.authorization = authorization
+}
+
+// SetAuditRecorder 注入成员管理审计记录器；生产装配必须使用持久化实现，测试可保留空实现。
+func (s *TenantService) SetAuditRecorder(audit AuditRecorder) {
+	if audit == nil {
+		s.audit = NoopAuditRecorder{}
+		return
+	}
+	s.audit = audit
 }
 
 // BootstrapDefaultTenant 幂等写入基础角色、演示租户，并为非平台管理员的历史用户补齐默认租户关系。
@@ -396,6 +417,98 @@ func (s *TenantService) AddTenantUser(ctx context.Context, actorID uint64, tenan
 	return domain.TenantMemberDTO{}, response.ErrBadRequest
 }
 
+// CreateTenantMember 创建或按邮箱复用普通成员账号，并在可信租户内追加 DO/DU 角色与脱敏审计。
+func (s *TenantService) CreateTenantMember(ctx context.Context, actorID uint64, tenantID uint64, input CreateTenantMemberInput) (domain.TenantMemberCreateDTO, error) {
+	if err := s.ensureTenantManager(ctx, actorID, tenantID); err != nil {
+		return domain.TenantMemberCreateDTO{}, err
+	}
+	tenant, err := s.tenants.FindTenantByID(ctx, tenantID)
+	if err != nil {
+		return domain.TenantMemberCreateDTO{}, err
+	}
+	if tenant.Status != domain.TenantStatusEnabled {
+		return domain.TenantMemberCreateDTO{}, response.ErrTenantDisabled
+	}
+	normalized, roles, err := normalizeAndValidateTenantMember(input)
+	if err != nil {
+		return domain.TenantMemberCreateDTO{}, err
+	}
+	user, err := s.users.FindByEmail(ctx, normalized.Email)
+	created := false
+	if errors.Is(err, repository.ErrUserNotFound) {
+		passwordHash, hashErr := auth.HashPassword(defaultTenantMemberPassword)
+		if hashErr != nil {
+			return domain.TenantMemberCreateDTO{}, hashErr
+		}
+		user = &domain.User{Username: normalized.Username, Email: normalized.Email, PasswordHash: passwordHash, Nickname: normalized.DisplayName, Phone: normalized.Phone, Role: domain.RoleDataUser, Status: domain.StatusActive, MustChangePassword: true}
+		if createErr := s.users.Create(ctx, user); createErr != nil {
+			return domain.TenantMemberCreateDTO{}, createErr
+		}
+		created = true
+	} else if err != nil {
+		return domain.TenantMemberCreateDTO{}, err
+	} else if user.Status != domain.StatusActive {
+		return domain.TenantMemberCreateDTO{}, response.ErrUserDisabled
+	}
+	// 已有账号只复用身份，绝不把表单中的密码或资料写回 users，避免租户管理员越权修改全局账号。
+	if err := s.tenants.EnsureTenantUser(ctx, tenantID, user.ID, domain.TenantUserStatusActive); err != nil {
+		return domain.TenantMemberCreateDTO{}, err
+	}
+	for _, role := range roles {
+		if err := s.tenants.EnsureUserRole(ctx, &tenantID, user.ID, role); err != nil {
+			return domain.TenantMemberCreateDTO{}, err
+		}
+	}
+	member, err := s.findTenantMemberDTO(ctx, tenantID, user.ID)
+	if err != nil {
+		return domain.TenantMemberCreateDTO{}, err
+	}
+	action := "tenant_member.account_reused"
+	if created {
+		action = "tenant_member.account_created"
+	}
+	roleCodes := make([]string, 0, len(roles))
+	for _, role := range roles {
+		roleCodes = append(roleCodes, string(role))
+	}
+	// 审计元数据只传递白名单标量，角色集合使用稳定逗号分隔编码，避免数组类型绕过敏感字段审计规则。
+	if err := s.audit.Record(ctx, AuditEvent{TenantID: &tenantID, ActorUserID: actorID, Action: action, TargetType: "tenant_member", TargetID: user.ID, Result: "SUCCESS", SourceTrust: "SERVER_OBSERVED", Metadata: map[string]any{"roles": strings.Join(roleCodes, ","), "created_user": created}}); err != nil {
+		return domain.TenantMemberCreateDTO{}, err
+	}
+	result := domain.TenantMemberCreateDTO{Member: member, CreatedUser: created}
+	if created {
+		result.TemporaryPassword = defaultTenantMemberPassword
+	}
+	return result, nil
+}
+
+// normalizeAndValidateTenantMember 规范化账号字段并限制角色为 DO/DU，所有校验在任何数据库写入前完成。
+func normalizeAndValidateTenantMember(input CreateTenantMemberInput) (CreateTenantMemberInput, []domain.RoleCode, error) {
+	input.Username = strings.TrimSpace(input.Username)
+	input.DisplayName = strings.TrimSpace(input.DisplayName)
+	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
+	input.Phone = strings.TrimSpace(input.Phone)
+	if !tenantMemberUsernamePattern.MatchString(input.Username) || !validator.ValidNickname(input.DisplayName) || !validator.ValidEmail(input.Email) || len([]rune(input.Phone)) > 32 {
+		return input, nil, response.ErrBadRequest
+	}
+	seen := make(map[domain.RoleCode]struct{})
+	roles := make([]domain.RoleCode, 0, len(input.Roles))
+	for _, role := range input.Roles {
+		if role != domain.RoleDO && role != domain.RoleDU {
+			return input, nil, response.ErrInvalidRole
+		}
+		if _, exists := seen[role]; exists {
+			continue
+		}
+		seen[role] = struct{}{}
+		roles = append(roles, role)
+	}
+	if len(roles) == 0 {
+		return input, nil, response.ErrInvalidRole
+	}
+	return input, roles, nil
+}
+
 // RemoveTenantUser 校验租户管理权限后停用指定成员关系。
 func (s *TenantService) RemoveTenantUser(ctx context.Context, actorID uint64, tenantID uint64, userID uint64) error {
 	if err := s.ensureTenantManager(ctx, actorID, tenantID); err != nil {
@@ -420,60 +533,8 @@ func (s *TenantService) ListTenantUsers(ctx context.Context, actorID uint64, ten
 	return result, nil
 }
 
-// AssignTenantMemberBusinessRole 校验租户管理员身份后，为本租户成员替换单一普通业务角色。
-func (s *TenantService) AssignTenantMemberBusinessRole(ctx context.Context, actorID uint64, tenantID uint64, targetUserID uint64, input AssignTenantMemberRoleInput) (domain.TenantMemberDTO, error) {
-	role, err := tenantBusinessRoleFromRequest(input.RoleCode)
-	if err != nil {
-		return domain.TenantMemberDTO{}, err
-	}
-	tenant, err := s.tenants.FindTenantByID(ctx, tenantID)
-	if err != nil {
-		if errors.Is(err, repository.ErrTenantNotFound) {
-			return domain.TenantMemberDTO{}, response.ErrTenantNotFound
-		}
-		return domain.TenantMemberDTO{}, err
-	}
-	if tenant.Status != domain.TenantStatusEnabled {
-		return domain.TenantMemberDTO{}, response.ErrTenantDisabled
-	}
-	if ok, err := s.isPlatformAdmin(ctx, actorID); err != nil {
-		return domain.TenantMemberDTO{}, err
-	} else if ok {
-		// PLATFORM_ADMIN 负责平台治理和兜底指定租户管理员，不参与租户内 DO/DU 日常分配。
-		// 这里显式拒绝，避免平台身份绕过 tenant_users 成员关系并获得租户业务角色写入能力。
-		return domain.TenantMemberDTO{}, response.ErrTenantRoleAssignPlatformForbidden
-	}
-	if ok, err := s.tenants.HasRole(ctx, actorID, &tenantID, domain.RoleTenantAdmin); err != nil {
-		return domain.TenantMemberDTO{}, err
-	} else if !ok {
-		return domain.TenantMemberDTO{}, response.ErrTenantPermissionDenied
-	}
-	if actorID == targetUserID {
-		// 只有确认操作者确实是本租户管理员后，才返回“不能修改自己的管理员角色”；
-		// 普通成员直接调用接口仍应按无权限处理，避免暴露多余的角色语义。
-		return domain.TenantMemberDTO{}, response.ErrTenantAdminSelfRoleForbidden
-	}
-	member, err := s.tenants.FindTenantUser(ctx, tenantID, targetUserID)
-	if err != nil {
-		if errors.Is(err, repository.ErrTenantMemberMissing) {
-			return domain.TenantMemberDTO{}, response.ErrTenantMemberForbidden
-		}
-		return domain.TenantMemberDTO{}, err
-	}
-	if member.Status != domain.TenantUserStatusActive {
-		return domain.TenantMemberDTO{}, response.ErrTenantMemberDisabled
-	}
-	if err := s.tenants.ReplaceTenantBusinessRole(ctx, tenantID, targetUserID, role); err != nil {
-		return domain.TenantMemberDTO{}, err
-	}
-	return s.findTenantMemberDTO(ctx, tenantID, targetUserID)
-}
-
-// ensureTenantManager 校验用户是否具备指定租户的管理权限。
+// ensureTenantManager 是迁移期兼容函数，只允许真实租户管理员角色管理旧租户资源接口。
 func (s *TenantService) ensureTenantManager(ctx context.Context, userID uint64, tenantID uint64) error {
-	if err := s.ensurePlatformOrLegacyAdmin(ctx, userID); err == nil {
-		return nil
-	}
 	// 租户管理员权限必须绑定到具体 tenant_id，避免 A 租户管理员跨租户管理 B 租户。
 	ok, err := s.tenants.HasRole(ctx, userID, &tenantID, domain.RoleTenantAdmin)
 	if err != nil {
@@ -485,21 +546,13 @@ func (s *TenantService) ensureTenantManager(ctx context.Context, userID uint64, 
 	return nil
 }
 
-// ensurePlatformOrLegacyAdmin 校验平台管理员角色，并兼容旧 users.role 中的 admin。
+// ensurePlatformOrLegacyAdmin 校验平台管理员角色；函数名保留历史兼容，但不再读取 users.role=admin 放行。
 func (s *TenantService) ensurePlatformOrLegacyAdmin(ctx context.Context, userID uint64) error {
 	ok, err := s.isPlatformAdmin(ctx, userID)
 	if err != nil {
 		return err
 	}
 	if ok {
-		return nil
-	}
-	// 兼容旧数据中的 admin 字段；新授权应优先写入 user_roles 的平台角色。
-	user, err := s.users.FindByID(ctx, userID)
-	if err != nil {
-		return response.ErrTenantPermissionDenied
-	}
-	if user.Role == domain.RoleAdmin {
 		return nil
 	}
 	return response.ErrTenantPermissionDenied
@@ -522,18 +575,6 @@ func (s *TenantService) findTenantMemberDTO(ctx context.Context, tenantID uint64
 		}
 	}
 	return domain.TenantMemberDTO{}, response.ErrTenantMemberForbidden
-}
-
-// tenantBusinessRoleFromRequest 将前端业务角色名映射为系统内部稳定角色编码，并拒绝平台或管理员角色。
-func tenantBusinessRoleFromRequest(raw string) (domain.RoleCode, error) {
-	switch strings.ToUpper(strings.TrimSpace(raw)) {
-	case "DATA_OWNER", string(domain.RoleDO):
-		return domain.RoleDO, nil
-	case "DATA_VISITOR", string(domain.RoleDU):
-		return domain.RoleDU, nil
-	default:
-		return "", response.ErrInvalidRole
-	}
 }
 
 // toTenantDTO 将租户实体转换为对外 DTO，并附带调用方传入的角色列表。
@@ -582,15 +623,15 @@ func (s *TenantService) buildTenantContextDTO(ctx context.Context, userID uint64
 	return context
 }
 
-// permissionsForTenantRoles 返回当前租户权限集合；迁移期保留旧角色映射作为数据库权限尚未初始化时的兜底。
-func (s *TenantService) permissionsForTenantRoles(ctx context.Context, userID uint64, tenantID uint64, roles []domain.RoleCode) []string {
+// permissionsForTenantRoles 返回当前租户权限集合；数据库授权失败时返回空集合，避免旧角色映射重新成为事实源。
+func (s *TenantService) permissionsForTenantRoles(ctx context.Context, userID uint64, tenantID uint64, _ []domain.RoleCode) []string {
 	if s != nil && s.authorization != nil {
 		permissions, err := s.authorization.TenantPermissions(ctx, userID, tenantID)
 		if err == nil {
 			return permissions
 		}
 	}
-	return permissionsForRoles(roles)
+	return []string{}
 }
 
 // tenantBrandingFor 合并数据库覆盖值和内置演示租户品牌，避免前端按中文租户名推导资源路径。
@@ -682,36 +723,6 @@ func overlayTenantBranding(target *domain.TenantBrandingDTO, override domain.Ten
 	if override.BackgroundGlow != "" {
 		target.BackgroundGlow = override.BackgroundGlow
 	}
-}
-
-// permissionsForRoles 生成轻量前端权限标识；服务端鉴权仍以数据库角色查询为准。
-func permissionsForRoles(roles []domain.RoleCode) []string {
-	permissions := make([]string, 0, len(roles)*2)
-	seen := map[string]struct{}{}
-	add := func(permission string) {
-		if _, ok := seen[permission]; ok {
-			return
-		}
-		seen[permission] = struct{}{}
-		permissions = append(permissions, permission)
-	}
-	for _, role := range roles {
-		switch role {
-		case domain.RolePlatformAdmin:
-			add("platform:manage")
-			add("tenant:switch")
-		case domain.RoleTenantAdmin:
-			add("tenant:manage")
-			add("org:manage")
-			add("policy:view")
-		case domain.RoleDO:
-			add("policy:write")
-			add("file:upload")
-		case domain.RoleDU:
-			add("file:read")
-		}
-	}
-	return permissions
 }
 
 // toTenantMemberDTO 将仓储层成员聚合记录转换为对外成员 DTO。

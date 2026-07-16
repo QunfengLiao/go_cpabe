@@ -396,14 +396,14 @@ func (s *OrgAttributeService) bootstrapOrgChildren(ctx context.Context, tenantID
 	for i, node := range nodes {
 		path := fmt.Sprintf("%s/%s", strings.TrimRight(parentPath, "/"), node.Code)
 		unit := domain.TenantOrgUnit{
-			TenantID:   tenantID,
-			ParentID:   parentID,
-			Code:       node.Code,
-			Name:       node.Name,
-			Path:       path,
-			Level:      level,
-			SortOrder:  (i + 1) * 10,
-			Status:     domain.OrgUnitStatusEnabled,
+			TenantID:  tenantID,
+			ParentID:  parentID,
+			Code:      node.Code,
+			Name:      node.Name,
+			Path:      path,
+			Level:     level,
+			SortOrder: (i + 1) * 10,
+			Status:    domain.OrgUnitStatusEnabled,
 		}
 		created, err := s.orgs.EnsureOrgUnit(ctx, &unit)
 		if err != nil {

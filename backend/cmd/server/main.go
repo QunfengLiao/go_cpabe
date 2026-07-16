@@ -40,12 +40,17 @@ func main() {
 	authManager := auth.NewManager(cfg.JWTSecret, cfg.AccessTokenTTL)
 	tokenStore := auth.NewRedisTokenStore(redisClient, cfg.RefreshTokenTTL)
 	localStorage := storage.NewLocalStorage(cfg.AvatarUploadDir, cfg.AvatarURLPrefix)
+	encryptedStorage := storage.NewLocalEncryptedFileStorage(cfg.EncryptedFileStorageDir, cfg.EncryptedFileTempDir)
+	encryptionRepo := repository.NewGormEncryptionRepository(db)
+	rsaKeyRepo := repository.NewGormRSAKeyRepository(db)
+	auditRepo := repository.NewGormAuditRepository(db)
 
 	tenantSvc := service.NewTenantService(tenantRepo, userRepo)
 	authorizationSvc := service.NewAuthorizationService(tenantRepo)
 	tenantRoleSvc := service.NewTenantRoleService(tenantRepo, authorizationSvc)
 	tenantSvc.SetAuthorizationService(authorizationSvc)
-	auditRecorder := service.NoopAuditRecorder{}
+	auditRecorder := service.NewDatabaseAuditRecorder(auditRepo)
+	tenantSvc.SetAuditRecorder(auditRecorder)
 	platformTenantSvc := service.NewPlatformTenantService(tenantRepo, userRepo, auditRecorder)
 	platformTenantUserSvc := service.NewPlatformTenantUserService(tenantRepo, userRepo, auditRecorder)
 	platformRoleSvc := service.NewPlatformRoleService(tenantRepo, userRepo, auditRecorder)
@@ -73,6 +78,10 @@ func main() {
 	authSvc := service.NewAuthService(userRepo, authManager, tokenStore, cfg.RefreshTokenTTL, tenantSvc)
 	userSvc := service.NewUserService(userRepo, localStorage)
 	healthSvc := service.NewHealthService(cfg, db, nil, redisClient, nil)
+	rsaKeySvc := service.NewRSAKeyService(rsaKeyRepo, auditRecorder)
+	encryptionAdmission := service.NewEncryptionAdmission(redisClient, cfg.EncryptionMaxConcurrentPerTenant, 15*time.Minute)
+	encryptionSvc := service.NewEncryptionService(encryptionRepo, rsaKeySvc, encryptedStorage, encryptionAdmission, auditRecorder, cfg.EncryptedFileMaxSize)
+	encryptedFileSvc := service.NewEncryptedFileService(encryptionRepo, encryptedStorage, auditRecorder)
 
 	router := handler.NewRouter(handler.Dependencies{
 		AuthService:               authSvc,
@@ -90,7 +99,11 @@ func main() {
 		PlatformRoleResolver:      tenantRepo,
 		AuthManager:               authManager,
 		HealthService:             healthSvc,
+		EncryptionService:         encryptionSvc,
+		RSAKeyService:             rsaKeySvc,
+		EncryptedFileService:      encryptedFileSvc,
 		MaxAvatarSize:             cfg.AvatarMaxSize,
+		MaxEncryptedFileSize:      cfg.EncryptedFileMaxSize,
 	})
 	router.Static(cfg.AvatarURLPrefix, cfg.AvatarUploadDir)
 

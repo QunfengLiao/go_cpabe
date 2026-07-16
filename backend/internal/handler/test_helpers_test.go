@@ -508,19 +508,6 @@ func (r *testTenantRepo) RemoveUserRole(_ context.Context, tenantID *uint64, use
 	return nil
 }
 
-// ReplaceTenantBusinessRole 在 handler 测试仓储中模拟旧接口的兼容追加行为，避免再次制造 DO/DU 互斥。
-func (r *testTenantRepo) ReplaceTenantBusinessRole(_ context.Context, tenantID uint64, userID uint64, roleCode domain.RoleCode) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	roleID, ok := r.roleCodes[roleCode]
-	if !ok {
-		return repository.ErrRoleNotFound
-	}
-	r.assignments[tenantRoleKey(&tenantID, userID, roleID)] = &domain.UserRoleAssignment{ID: r.nextAssign, TenantID: &tenantID, UserID: userID, RoleID: roleID, AssignmentSource: domain.AssignmentSourceManual, Status: domain.UserRoleStatusActive}
-	r.nextAssign++
-	return nil
-}
-
 // ListRoleCodesByUserTenant 返回 handler 测试仓储中的租户内角色编码。
 func (r *testTenantRepo) ListRoleCodesByUserTenant(_ context.Context, userID uint64, tenantID uint64) ([]domain.RoleCode, error) {
 	r.mu.Lock()
@@ -585,6 +572,196 @@ func (r *testTenantRepo) CountTenantAdmins(_ context.Context, tenantID uint64) (
 	return count, nil
 }
 
+// ListTenantPermissions 返回 handler 测试用的空租户权限目录，成员角色用例不依赖权限绑定。
+func (r *testTenantRepo) ListTenantPermissions(_ context.Context) ([]domain.Permission, error) {
+	return []domain.Permission{}, nil
+}
+
+// ListTenantRoles 返回系统内置租户角色和当前租户自定义角色，排除平台角色。
+func (r *testTenantRepo) ListTenantRoles(_ context.Context, tenantID uint64) ([]repository.TenantRoleRecord, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	records := []repository.TenantRoleRecord{}
+	for _, role := range r.roles {
+		if role.ScopeType != domain.RoleScopeTypeTenant || role.Code == domain.RolePlatformAdmin {
+			continue
+		}
+		if role.TenantID != 0 && role.TenantID != tenantID {
+			continue
+		}
+		records = append(records, repository.TenantRoleRecord{Role: *role})
+	}
+	return records, nil
+}
+
+// FindTenantRole 在 handler 测试仓储中按当前租户可见范围查找角色。
+func (r *testTenantRepo) FindTenantRole(_ context.Context, tenantID uint64, roleID uint64) (*domain.Role, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	role := r.roles[roleID]
+	if role == nil || role.ScopeType != domain.RoleScopeTypeTenant || role.Code == domain.RolePlatformAdmin || (role.TenantID != 0 && role.TenantID != tenantID) {
+		return nil, repository.ErrRoleNotFound
+	}
+	copy := *role
+	return &copy, nil
+}
+
+// CreateTenantCustomRole 在 handler 测试仓储中创建租户自定义角色，权限绑定在集成测试中不展开。
+func (r *testTenantRepo) CreateTenantCustomRole(_ context.Context, role domain.Role, _ []string) (*domain.Role, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, exists := r.roleCodes[role.Code]; exists {
+		return nil, repository.ErrRoleCodeExists
+	}
+	role.ID = r.nextRole
+	r.nextRole++
+	role.ScopeType = domain.RoleScopeTypeTenant
+	role.Scope = domain.RoleScopeTenant
+	role.RoleCategory = domain.RoleCategoryBusiness
+	role.IsBuiltin = false
+	role.Status = domain.RoleStatusActive
+	copy := role
+	r.roles[role.ID] = &copy
+	r.roleCodes[role.Code] = role.ID
+	return &copy, nil
+}
+
+// UpdateTenantCustomRole 在 handler 测试仓储中只更新自定义角色展示字段。
+func (r *testTenantRepo) UpdateTenantCustomRole(_ context.Context, tenantID uint64, roleID uint64, name string, description string, _ uint64) (*domain.Role, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	role := r.roles[roleID]
+	if role == nil || role.TenantID != tenantID {
+		return nil, repository.ErrRoleNotFound
+	}
+	if role.IsBuiltin || role.TenantID == 0 {
+		return nil, repository.ErrBuiltinRoleImmutable
+	}
+	role.Name = name
+	role.Description = description
+	copy := *role
+	return &copy, nil
+}
+
+// DisableTenantCustomRole 在 handler 测试仓储中禁用自定义角色。
+func (r *testTenantRepo) DisableTenantCustomRole(_ context.Context, tenantID uint64, roleID uint64, _ uint64) (int64, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	role := r.roles[roleID]
+	if role == nil || role.TenantID != tenantID {
+		return 0, repository.ErrRoleNotFound
+	}
+	if role.IsBuiltin || role.TenantID == 0 {
+		return 0, repository.ErrBuiltinRoleImmutable
+	}
+	role.Status = domain.RoleStatusDisabled
+	return 0, nil
+}
+
+// ListRolePermissions 返回 handler 测试仓储中的空权限绑定。
+func (r *testTenantRepo) ListRolePermissions(_ context.Context, _ uint64, _ uint64) ([]domain.Permission, error) {
+	return []domain.Permission{}, nil
+}
+
+// ReplaceRolePermissions 在 handler 测试中接受权限替换请求但不持久化权限矩阵。
+func (r *testTenantRepo) ReplaceRolePermissions(_ context.Context, _ uint64, _ uint64, _ []string, _ uint64) error {
+	return nil
+}
+
+// ListMemberRoles 返回成员在当前租户内的有效角色详情。
+func (r *testTenantRepo) ListMemberRoles(_ context.Context, tenantID uint64, userID uint64) ([]domain.Role, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if member := r.members[tenantMemberKey(tenantID, userID)]; member == nil || member.Status != domain.TenantUserStatusActive {
+		return nil, repository.ErrTenantMemberMissing
+	}
+	roles := []domain.Role{}
+	for _, assignment := range r.assignments {
+		if assignment.UserID != userID || assignment.TenantID == nil || *assignment.TenantID != tenantID || assignment.Status == domain.UserRoleStatusRevoked {
+			continue
+		}
+		role := r.roles[assignment.RoleID]
+		if role != nil && role.Status != domain.RoleStatusDisabled {
+			roles = append(roles, *role)
+		}
+	}
+	return roles, nil
+}
+
+// ReplaceMemberRoles 在 handler 测试仓储中按 role code 全量替换成员角色集合。
+func (r *testTenantRepo) ReplaceMemberRoles(_ context.Context, tenantID uint64, userID uint64, roleCodes []string, assignedBy uint64) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if member := r.members[tenantMemberKey(tenantID, userID)]; member == nil || member.Status != domain.TenantUserStatusActive {
+		return repository.ErrTenantMemberMissing
+	}
+	keep := map[uint64]struct{}{}
+	for _, raw := range roleCodes {
+		code := domain.RoleCode(strings.ToUpper(strings.TrimSpace(raw)))
+		if code == domain.RolePlatformAdmin {
+			return repository.ErrCannotAssignPlatformRole
+		}
+		roleID, ok := r.roleCodes[code]
+		if !ok {
+			return repository.ErrRoleNotFound
+		}
+		role := r.roles[roleID]
+		if role == nil || role.ScopeType != domain.RoleScopeTypeTenant || (role.TenantID != 0 && role.TenantID != tenantID) {
+			return repository.ErrRoleNotFound
+		}
+		if role.Status != domain.RoleStatusActive {
+			return repository.ErrRoleDisabled
+		}
+		keep[roleID] = struct{}{}
+	}
+	for key, assignment := range r.assignments {
+		if assignment.UserID == userID && assignment.TenantID != nil && *assignment.TenantID == tenantID {
+			if _, ok := keep[assignment.RoleID]; !ok {
+				assignment.Status = domain.UserRoleStatusRevoked
+				r.assignments[key] = assignment
+			}
+		}
+	}
+	for roleID := range keep {
+		r.assignments[tenantRoleKey(&tenantID, userID, roleID)] = &domain.UserRoleAssignment{ID: r.nextAssign, TenantID: &tenantID, UserID: userID, RoleID: roleID, AssignmentSource: domain.AssignmentSourceManual, AssignedBy: &assignedBy, Status: domain.UserRoleStatusActive}
+		r.nextAssign++
+	}
+	return nil
+}
+
+// ListTenantPermissionCodesByUser 返回 handler 测试中的权限并集；成员角色用例只验证角色集合。
+func (r *testTenantRepo) ListTenantPermissionCodesByUser(_ context.Context, _ uint64, _ uint64) ([]string, error) {
+	return []string{}, nil
+}
+
+// ListPlatformPermissionCodesByUser 返回 handler 测试中的平台权限集合。
+func (r *testTenantRepo) ListPlatformPermissionCodesByUser(_ context.Context, _ uint64) ([]string, error) {
+	return []string{}, nil
+}
+
+// HasTenantPermission 在 handler 测试仓储中默认不授予真实权限，路由权限由 stub 中间件隔离。
+func (r *testTenantRepo) HasTenantPermission(_ context.Context, _ uint64, _ uint64, _ string) (bool, error) {
+	return false, nil
+}
+
+// HasPlatformPermission 在 handler 测试仓储中默认不授予真实平台权限，平台中间件另有测试覆盖。
+func (r *testTenantRepo) HasPlatformPermission(_ context.Context, _ uint64, _ string) (bool, error) {
+	return false, nil
+}
+
+// CountRoleActiveMembers 统计当前租户中有效绑定目标角色的成员数量。
+func (r *testTenantRepo) CountRoleActiveMembers(_ context.Context, tenantID uint64, roleID uint64) (int64, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var count int64
+	for _, assignment := range r.assignments {
+		if assignment.TenantID != nil && *assignment.TenantID == tenantID && assignment.RoleID == roleID && assignment.Status != domain.UserRoleStatusRevoked {
+			count++
+		}
+	}
+	return count, nil
+}
+
 // roleCodesByUserTenantLocked 在已持锁状态下收集用户租户内角色。
 func (r *testTenantRepo) roleCodesByUserTenantLocked(userID uint64, tenantID uint64) []domain.RoleCode {
 	roles := []domain.RoleCode{}
@@ -638,6 +815,9 @@ func newTestApp() testApp {
 	authSvc := service.NewAuthService(repo, manager, store, time.Hour, tenantSvc)
 	userSvc := service.NewUserService(repo, testStorage{})
 	policySvc := service.NewPolicyService(policyRepo, tenantRepo)
+	authorizationSvc := service.NewAuthorizationService(tenantRepo)
+	tenantSvc.SetAuthorizationService(authorizationSvc)
+	tenantRoleSvc := service.NewTenantRoleService(tenantRepo, authorizationSvc)
 	router := NewRouter(Dependencies{
 		AuthService:               authSvc,
 		UserService:               userSvc,
@@ -648,6 +828,7 @@ func newTestApp() testApp {
 		PlatformDashboardService:  platformDashboardSvc,
 		PolicyService:             policySvc,
 		AuthorizationService:      permissionAuthorizerStub{},
+		TenantRoleService:         tenantRoleSvc,
 		PlatformRoleResolver:      tenantRepo,
 		AuthManager:               manager,
 		MaxAvatarSize:             2 * 1024 * 1024,

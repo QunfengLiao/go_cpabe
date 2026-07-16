@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"go-cpabe/backend/internal/domain"
+	"go-cpabe/backend/internal/middleware"
 	"go-cpabe/backend/internal/pkg/response"
 	"go-cpabe/backend/internal/service"
 )
@@ -39,9 +40,13 @@ type addTenantUserRequest struct {
 	Roles  []domain.RoleCode `json:"roles"`
 }
 
-// assignTenantMemberRoleRequest 是租户成员普通业务角色分配请求体。
-type assignTenantMemberRoleRequest struct {
-	RoleCode string `json:"roleCode"`
+// createTenantMemberRequest 是租户管理员创建或复用普通成员账号的请求体，不接受租户 ID 或自定义初始密码。
+type createTenantMemberRequest struct {
+	Username    string            `json:"username"`
+	DisplayName string            `json:"display_name"`
+	Email       string            `json:"email"`
+	Phone       string            `json:"phone"`
+	Roles       []domain.RoleCode `json:"roles"`
 }
 
 // MyTenants 返回当前用户可访问的租户上下文。
@@ -170,6 +175,35 @@ func (h *TenantHandler) AddTenantUser(c *gin.Context) {
 	response.OK(c, member)
 }
 
+// CreateCurrentTenantMember 处理当前租户管理员新增成员账号，租户和操作者只取认证中间件写入的可信上下文。
+func (h *TenantHandler) CreateCurrentTenantMember(c *gin.Context) {
+	tenantID, ok := middleware.CurrentTenantID(c)
+	if !ok {
+		response.Fail(c, response.ErrTenantIDMissing)
+		return
+	}
+	actorID, ok := currentUserID(c)
+	if !ok {
+		response.Fail(c, response.ErrAccessTokenInvalid)
+		return
+	}
+	var req createTenantMemberRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, response.ErrBadRequest)
+		return
+	}
+	result, err := h.service.CreateTenantMember(c.Request.Context(), actorID, tenantID, service.CreateTenantMemberInput{Username: req.Username, DisplayName: req.DisplayName, Email: req.Email, Phone: req.Phone, Roles: req.Roles})
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+	if result.CreatedUser {
+		response.Created(c, result)
+		return
+	}
+	response.OK(c, result)
+}
+
 // RemoveTenantUser 处理从租户移除成员的请求。
 func (h *TenantHandler) RemoveTenantUser(c *gin.Context) {
 	userID, tenantID, ok := tenantPathIDs(c, false)
@@ -200,30 +234,6 @@ func (h *TenantHandler) ListTenantUsers(c *gin.Context) {
 		return
 	}
 	response.OK(c, gin.H{"users": users})
-}
-
-// AssignTenantMemberRole 处理租户管理员给本租户成员分配普通业务角色的请求。
-func (h *TenantHandler) AssignTenantMemberRole(c *gin.Context) {
-	userID, tenantID, ok := tenantPathIDs(c, true)
-	if !ok {
-		return
-	}
-	targetUserID, err := strconv.ParseUint(c.Param("userId"), 10, 64)
-	if err != nil || targetUserID == 0 {
-		response.Fail(c, response.ErrBadRequest)
-		return
-	}
-	var req assignTenantMemberRoleRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Fail(c, response.ErrBadRequest)
-		return
-	}
-	member, err := h.service.AssignTenantMemberBusinessRole(c.Request.Context(), userID, tenantID, targetUserID, service.AssignTenantMemberRoleInput{RoleCode: req.RoleCode})
-	if err != nil {
-		response.Fail(c, err)
-		return
-	}
-	response.OK(c, member)
 }
 
 // setTenantStatus 复用启用/禁用租户逻辑，并统一响应租户状态。
