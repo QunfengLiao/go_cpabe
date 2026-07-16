@@ -28,7 +28,7 @@
 
 **决策**：新增前端 `api/rbac.ts` 调用 `/tenant/permissions`、`/tenant/roles`、`/tenant/members/:userId/roles`、`/tenant/me/authorization` 等当前租户上下文接口；旧 `/tenants/:id/members/:userId/role` 只保留兼容。
 
-**理由**：当前租户接口由后端从 `X-Tenant-Id` 解析可信租户，不需要前端在 URL 中传租户 ID 作为事实边界；成员多角色也需要完整 roleIds 替换接口。
+**理由**：当前租户接口由后端从 `X-Tenant-Id` 解析可信租户，不需要前端在 URL 中传租户 ID 作为事实边界；成员多角色也需要完整 roleCodes 替换接口。
 
 **替代方案**：扩展旧路径式接口。该方案会继续携带 tenantId 参数，不符合后端 008 契约推荐方向。
 

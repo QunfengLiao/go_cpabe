@@ -224,7 +224,7 @@
 
 ```json
 {
-  "roleIds": [2, 3, 15]
+  "roleCodes": ["DO", "DU", "SRE_ENGINEER"]
 }
 ```
 

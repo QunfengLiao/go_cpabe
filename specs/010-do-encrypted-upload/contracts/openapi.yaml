@@ -1,0 +1,704 @@
+openapi: 3.1.0
+info:
+  title: DO 文件加密上传基础闭环接口
+  version: 1.0.0
+  description: |
+    本契约定义租户内 RSA+AES 首个实现方案所需的算法、公钥、任务、密文和文件接口。
+    所有租户接口必须同时使用 Bearer Token 与 X-Tenant-Id；服务端不得信任请求体中的租户信息。
+servers:
+  - url: /api/v1
+security:
+  - bearerAuth: []
+paths:
+  /tenant/encryption-algorithms:
+    get:
+      summary: 查询当前租户可用的 DEK 保护算法
+      operationId: listEncryptionAlgorithms
+      parameters:
+        - $ref: '#/components/parameters/TenantHeader'
+      responses:
+        '200':
+          description: 算法能力列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlgorithmListEnvelope'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /tenant/rsa-recipients:
+    get:
+      summary: 查询当前租户可作为 RSA 接收者的用户
+      operationId: listRSARecipients
+      parameters:
+        - $ref: '#/components/parameters/TenantHeader'
+      responses:
+        '200':
+          description: 接收者及公钥可用性
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RSARecipientListEnvelope'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /tenant/rsa-recipients/{userId}/public-keys:
+    get:
+      summary: 查询接收用户的有效 RSA 公钥版本
+      operationId: listRecipientRSAPublicKeys
+      parameters:
+        - $ref: '#/components/parameters/TenantHeader'
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: 当前租户内可用于新任务的公钥
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RSAPublicKeyListEnvelope'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /tenant/me/rsa-public-keys:
+    get:
+      summary: 查询当前成员自己的 RSA 公钥历史
+      operationId: listMyRSAPublicKeys
+      parameters:
+        - $ref: '#/components/parameters/TenantHeader'
+      responses:
+        '200':
+          description: 公钥历史，不包含私钥
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RSAPublicKeyListEnvelope'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      summary: 登记当前成员在本机生成的 RSA 公钥
+      operationId: registerMyRSAPublicKey
+      parameters:
+        - $ref: '#/components/parameters/TenantHeader'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRSAPublicKeyRequest'
+      responses:
+        '201':
+          description: 公钥登记成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RSAPublicKeyEnvelope'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /tenant/rsa-public-keys/{keyId}/status:
+    patch:
+      summary: 租户管理员禁用或撤销 RSA 公钥
+      operationId: updateRSAPublicKeyStatus
+      parameters:
+        - $ref: '#/components/parameters/TenantHeader'
+        - $ref: '#/components/parameters/KeyId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [DISABLED, REVOKED]
+                reason:
+                  type: string
+                  maxLength: 255
+      responses:
+        '200':
+          description: 状态已更新；历史文件引用保留
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RSAPublicKeyEnvelope'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /tenant/encryption-tasks:
+    post:
+      summary: 创建幂等加密任务和首次执行
+      operationId: createEncryptionTask
+      parameters:
+        - $ref: '#/components/parameters/TenantHeader'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEncryptionTaskRequest'
+      responses:
+        '201':
+          description: 新任务创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EncryptionTaskEnvelope'
+        '200':
+          description: 相同幂等键返回既有任务
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EncryptionTaskEnvelope'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /tenant/encryption-tasks/{taskId}:
+    get:
+      summary: 查询 DO 自己的加密任务
+      operationId: getEncryptionTask
+      parameters:
+        - $ref: '#/components/parameters/TenantHeader'
+        - $ref: '#/components/parameters/TaskId'
+      responses:
+        '200':
+          description: 任务及当前执行
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EncryptionTaskEnvelope'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /tenant/encryption-tasks/{taskId}/attempts/{attemptId}/progress:
+    post:
+      summary: 提交受控阶段和真实字节进度
+      operationId: reportEncryptionProgress
+      parameters:
+        - $ref: '#/components/parameters/TenantHeader'
+        - $ref: '#/components/parameters/TaskId'
+        - $ref: '#/components/parameters/AttemptId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProgressRequest'
+      responses:
+        '200':
+          description: 进度已接受；重复相同进度安全返回
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EncryptionTaskEnvelope'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /tenant/encryption-tasks/{taskId}/attempts/{attemptId}/ciphertext:
+    put:
+      summary: 流式上传完整密文容器
+      operationId: uploadCiphertext
+      parameters:
+        - $ref: '#/components/parameters/TenantHeader'
+        - $ref: '#/components/parameters/TaskId'
+        - $ref: '#/components/parameters/AttemptId'
+        - name: X-Ciphertext-SHA256
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/Sha256Hex'
+        - name: X-Ciphertext-Format
+          in: header
+          required: true
+          schema:
+            type: string
+            const: GCPABE01
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '201':
+          description: 暂存密文保存并复核成功，尚不可下载
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CiphertextUploadEnvelope'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /tenant/encryption-tasks/{taskId}/attempts/{attemptId}/complete:
+    post:
+      summary: 原子提交密文元数据、受保护 DEK 和适配器绑定
+      operationId: completeEncryptionAttempt
+      parameters:
+        - $ref: '#/components/parameters/TenantHeader'
+        - $ref: '#/components/parameters/TaskId'
+        - $ref: '#/components/parameters/AttemptId'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteEncryptionRequest'
+      responses:
+        '200':
+          description: 完成成功或重复完成返回既有结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EncryptedFileEnvelope'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /tenant/encryption-tasks/{taskId}/cancel:
+    post:
+      summary: 请求取消当前可中断执行
+      operationId: cancelEncryptionTask
+      parameters:
+        - $ref: '#/components/parameters/TenantHeader'
+        - $ref: '#/components/parameters/TaskId'
+      responses:
+        '200':
+          description: 已取消或重复取消
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EncryptionTaskEnvelope'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /tenant/encryption-tasks/{taskId}/retry:
+    post:
+      summary: 为可重试失败任务创建新执行
+      operationId: retryEncryptionTask
+      parameters:
+        - $ref: '#/components/parameters/TenantHeader'
+        - $ref: '#/components/parameters/TaskId'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      responses:
+        '201':
+          description: 新执行已创建；授权快照不变
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EncryptionTaskEnvelope'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /tenant/encrypted-files:
+    get:
+      summary: 查询 DO 自己的加密文件
+      operationId: listEncryptedFiles
+      parameters:
+        - $ref: '#/components/parameters/TenantHeader'
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: page_size
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: status
+          in: query
+          schema: { type: string, enum: [DRAFT, AVAILABLE, FAILED, CANCELLED] }
+      responses:
+        '200':
+          description: 当前租户、当前 DO 的分页文件
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EncryptedFileListEnvelope'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /tenant/encrypted-files/{fileId}:
+    get:
+      summary: 查询加密文件详情
+      operationId: getEncryptedFile
+      parameters:
+        - $ref: '#/components/parameters/TenantHeader'
+        - $ref: '#/components/parameters/FileId'
+      responses:
+        '200':
+          description: 脱敏详情，不返回完整受保护密钥或对象键
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EncryptedFileEnvelope'
+        default:
+          $ref: '#/components/responses/Error'
+
+  /tenant/encrypted-files/{fileId}/ciphertext:
+    get:
+      summary: 鉴权下载已完成文件的密文容器
+      operationId: downloadCiphertext
+      parameters:
+        - $ref: '#/components/parameters/TenantHeader'
+        - $ref: '#/components/parameters/FileId'
+      responses:
+        '200':
+          description: 密文二进制流
+          headers:
+            X-Ciphertext-SHA256:
+              schema: { $ref: '#/components/schemas/Sha256Hex' }
+            Content-Disposition:
+              schema: { type: string }
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        default:
+          $ref: '#/components/responses/Error'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    TenantHeader:
+      name: X-Tenant-Id
+      in: header
+      required: true
+      description: 用户选择值，服务端必须重新校验成员关系和租户状态
+      schema: { type: integer, format: uint64, minimum: 1 }
+    IdempotencyKeyHeader:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 16, maxLength: 128 }
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema: { type: integer, format: uint64, minimum: 1 }
+    KeyId:
+      name: keyId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    TaskId:
+      name: taskId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    AttemptId:
+      name: attemptId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    FileId:
+      name: fileId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+
+  responses:
+    Error:
+      description: 统一业务错误；不得包含密码学堆栈和内部路径
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+
+  schemas:
+    Sha256Hex:
+      type: string
+      pattern: '^[a-f0-9]{64}$'
+    EnvelopeBase:
+      type: object
+      required: [code, message, request_id]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        request_id: { type: string }
+    ErrorEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { type: 'null' }
+
+    AlgorithmCapability:
+      type: object
+      additionalProperties: false
+      required: [code, display_name, category, version, authorization_type, enabled]
+      properties:
+        code: { type: string, example: RSA-OAEP-SHA256 }
+        display_name: { type: string, example: RSA + AES }
+        category: { type: string, example: PUBLIC_KEY }
+        version: { type: string, example: '1' }
+        authorization_type: { type: string, example: RSA_RECIPIENT }
+        enabled: { type: boolean }
+        unavailable_reason: { type: string }
+    AlgorithmListEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/AlgorithmCapability' }
+
+    RSARecipient:
+      type: object
+      additionalProperties: false
+      required: [user_id, display_name, available, active_key_count]
+      properties:
+        user_id: { type: integer, format: uint64 }
+        display_name: { type: string }
+        available: { type: boolean }
+        active_key_count: { type: integer, minimum: 0 }
+        unavailable_reason: { type: string }
+    RSARecipientListEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/RSARecipient' }
+
+    RSAPublicKey:
+      type: object
+      additionalProperties: false
+      required: [id, user_id, version, fingerprint_sha256, public_key_pem, key_bits, algorithm, status, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        user_id: { type: integer, format: uint64 }
+        version: { type: integer, minimum: 1 }
+        fingerprint_sha256: { $ref: '#/components/schemas/Sha256Hex' }
+        public_key_pem: { type: string, description: SPKI PEM；仅公钥接口返回 }
+        key_bits: { type: integer, const: 3072 }
+        algorithm: { type: string, const: RSA-OAEP-SHA256 }
+        status: { type: string, enum: [ACTIVE, DISABLED, REVOKED] }
+        created_at: { type: string, format: date-time }
+        disabled_at: { type: [string, 'null'], format: date-time }
+    RegisterRSAPublicKeyRequest:
+      type: object
+      additionalProperties: false
+      required: [public_key_pem, key_bits, algorithm, fingerprint_sha256]
+      properties:
+        public_key_pem: { type: string, maxLength: 8192 }
+        key_bits: { type: integer, const: 3072 }
+        algorithm: { type: string, const: RSA-OAEP-SHA256 }
+        fingerprint_sha256: { $ref: '#/components/schemas/Sha256Hex' }
+    RSAPublicKeyEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data: { $ref: '#/components/schemas/RSAPublicKey' }
+    RSAPublicKeyListEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/RSAPublicKey' }
+
+    RSARecipientAuthorization:
+      type: object
+      additionalProperties: false
+      required: [type, recipient_user_id, rsa_public_key_id]
+      properties:
+        type: { type: string, const: RSA_RECIPIENT }
+        recipient_user_id: { type: integer, format: uint64 }
+        rsa_public_key_id: { type: string, format: uuid }
+    CreateEncryptionTaskRequest:
+      type: object
+      additionalProperties: false
+      required: [file, algorithm, authorization]
+      properties:
+        file:
+          type: object
+          additionalProperties: false
+          required: [name, size]
+          properties:
+            name: { type: string, minLength: 1, maxLength: 255 }
+            size: { type: integer, minimum: 1, maximum: 1073741824 }
+            display_mime_type: { type: string, maxLength: 255 }
+        algorithm:
+          type: object
+          additionalProperties: false
+          required: [code, version]
+          properties:
+            code: { type: string, const: RSA-OAEP-SHA256 }
+            version: { type: string, const: '1' }
+        authorization:
+          $ref: '#/components/schemas/RSARecipientAuthorization'
+
+    ProgressRequest:
+      type: object
+      additionalProperties: false
+      required: [stage, processed_bytes, total_bytes]
+      properties:
+        stage:
+          type: string
+          enum: [VALIDATING, ENCRYPTING_FILE, PROTECTING_KEY, UPLOADING, SAVING_METADATA]
+        processed_bytes: { type: integer, minimum: 0 }
+        total_bytes: { type: integer, minimum: 1, maximum: 1073741824 }
+
+    CiphertextUpload:
+      type: object
+      additionalProperties: false
+      required: [upload_id, ciphertext_size, ciphertext_sha256, format, status]
+      properties:
+        upload_id: { type: string, format: uuid }
+        ciphertext_size: { type: integer, minimum: 1 }
+        ciphertext_sha256: { $ref: '#/components/schemas/Sha256Hex' }
+        format: { type: string, const: GCPABE01 }
+        status: { type: string, const: STAGING }
+    CiphertextUploadEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data: { $ref: '#/components/schemas/CiphertextUpload' }
+
+    CompleteEncryptionRequest:
+      type: object
+      additionalProperties: false
+      required: [upload_id, content_encryption, protected_key, adapter_binding, benchmark]
+      properties:
+        upload_id: { type: string, format: uuid }
+        content_encryption:
+          type: object
+          additionalProperties: false
+          required: [algorithm, container_format, nonce_prefix_base64, chunk_size, chunk_count, tag_length, aad_version, context_sha256]
+          properties:
+            algorithm: { type: string, const: AES-256-GCM }
+            container_format: { type: string, const: GCPABE01 }
+            nonce_prefix_base64: { type: string, contentEncoding: base64, description: 8 字节随机前缀 }
+            chunk_size: { type: integer, const: 4194304 }
+            chunk_count: { type: integer, minimum: 1, maximum: 256 }
+            tag_length: { type: integer, const: 16 }
+            aad_version: { type: string, const: '1' }
+            context_sha256: { $ref: '#/components/schemas/Sha256Hex' }
+        protected_key:
+          type: object
+          additionalProperties: false
+          required: [algorithm_code, algorithm_version, format, value_base64, context_sha256]
+          properties:
+            algorithm_code: { type: string, const: RSA-OAEP-SHA256 }
+            algorithm_version: { type: string, const: '1' }
+            format: { type: string, const: RSA-OAEP-SHA256-RAW }
+            value_base64: { type: string, contentEncoding: base64, maxLength: 8192 }
+            context_sha256: { $ref: '#/components/schemas/Sha256Hex' }
+        adapter_binding:
+          $ref: '#/components/schemas/RSAAdapterBinding'
+        benchmark:
+          $ref: '#/components/schemas/BenchmarkInput'
+    RSAAdapterBinding:
+      type: object
+      additionalProperties: false
+      required: [type, recipient_user_id, rsa_public_key_id, public_key_fingerprint_sha256, oaep_hash, oaep_label_sha256]
+      properties:
+        type: { type: string, const: RSA_RECIPIENT }
+        recipient_user_id: { type: integer, format: uint64 }
+        rsa_public_key_id: { type: string, format: uuid }
+        public_key_fingerprint_sha256: { $ref: '#/components/schemas/Sha256Hex' }
+        oaep_hash: { type: string, const: SHA-256 }
+        oaep_label_sha256: { $ref: '#/components/schemas/Sha256Hex' }
+    BenchmarkInput:
+      type: object
+      additionalProperties: false
+      required: [plaintext_size, ciphertext_size, aes_encrypt_ms, dek_protect_ms, upload_ms, client_runtime]
+      properties:
+        plaintext_size: { type: integer, minimum: 1 }
+        ciphertext_size: { type: integer, minimum: 1 }
+        aes_encrypt_ms: { type: integer, minimum: 0 }
+        dek_protect_ms: { type: integer, minimum: 0 }
+        upload_ms: { type: integer, minimum: 0 }
+        peak_working_set_bytes: { type: integer, minimum: 0 }
+        client_runtime: { type: string, maxLength: 64 }
+
+    EncryptionAttempt:
+      type: object
+      required: [id, attempt_no, status, processed_bytes, total_bytes, retryable]
+      properties:
+        id: { type: string, format: uuid }
+        attempt_no: { type: integer, minimum: 1 }
+        status:
+          type: string
+          enum: [PENDING, VALIDATING, ENCRYPTING_FILE, PROTECTING_KEY, UPLOADING, SAVING_METADATA, COMPLETED, FAILED, CANCELLED]
+        processed_bytes: { type: integer, minimum: 0 }
+        total_bytes: { type: integer, minimum: 1 }
+        failure_code: { type: string }
+        retryable: { type: boolean }
+    EncryptionTask:
+      type: object
+      required: [id, file_id, algorithm_code, algorithm_version, authorization, status, current_attempt]
+      properties:
+        id: { type: string, format: uuid }
+        file_id: { type: string, format: uuid }
+        algorithm_code: { type: string }
+        algorithm_version: { type: string }
+        authorization: { $ref: '#/components/schemas/RSARecipientAuthorization' }
+        status: { type: string }
+        current_attempt: { $ref: '#/components/schemas/EncryptionAttempt' }
+        created_at: { type: string, format: date-time }
+        completed_at: { type: [string, 'null'], format: date-time }
+    EncryptionTaskEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data: { $ref: '#/components/schemas/EncryptionTask' }
+
+    EncryptedFile:
+      type: object
+      required: [id, original_filename, plaintext_size, status, algorithm_code, algorithm_version, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        original_filename: { type: string }
+        display_mime_type: { type: string }
+        plaintext_size: { type: integer }
+        ciphertext_size: { type: integer }
+        ciphertext_sha256: { $ref: '#/components/schemas/Sha256Hex' }
+        status: { type: string, enum: [DRAFT, AVAILABLE, FAILED, CANCELLED] }
+        algorithm_code: { type: string }
+        algorithm_version: { type: string }
+        authorization_summary:
+          type: object
+          properties:
+            type: { type: string }
+            recipient_user_id: { type: integer, format: uint64 }
+            rsa_public_key_version: { type: integer }
+            fingerprint_prefix: { type: string }
+        created_at: { type: string, format: date-time }
+        completed_at: { type: [string, 'null'], format: date-time }
+    EncryptedFileEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data: { $ref: '#/components/schemas/EncryptedFile' }
+    EncryptedFileListEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [items, page, page_size, total]
+              properties:
+                items:
+                  type: array
+                  items: { $ref: '#/components/schemas/EncryptedFile' }
+                page: { type: integer }
+                page_size: { type: integer }
+                total: { type: integer }

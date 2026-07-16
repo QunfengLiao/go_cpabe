@@ -125,7 +125,7 @@
 - 文件：`desktop/src/renderer/src/components/TenantMemberRoleDialog.tsx`。
 - 当前 props 为 `member`、`saving`、`onClose`、`onSave(role: TenantBusinessRole)`。
 - 当前内部固定 `businessRoleOptions`，只允许 `DATA_OWNER -> DO` 和 `DATA_VISITOR -> DU`。
-- 当前点击选项即保存，没有多选、差异预览、禁用角色展示、完整 `roleIds` 提交或角色分组。
+- 当前点击选项即保存，没有多选、差异预览、禁用角色展示、完整 `roleCodes` 提交或角色分组。
 
 ### 成员管理页面
 
@@ -312,7 +312,7 @@
 - `desktop/src/renderer/src/api/tenant.ts`：保留旧接口兼容，新增或迁移成员角色读取/更新调用到 `rbac.ts`。
 - `desktop/src/renderer/src/main.tsx`：新增 `/tenant/roles` 路由；用 permission guard 替换 `RequireTenantRole`。
 - `desktop/src/renderer/src/components/AppLayout.tsx`：将菜单配置改为 permission 元数据和过滤器；新增角色管理菜单。
-- `desktop/src/renderer/src/components/TenantMemberRoleDialog.tsx`：改为多选、分组、差异预览、完整 roleIds 提交。
+- `desktop/src/renderer/src/components/TenantMemberRoleDialog.tsx`：改为多选、分组、差异预览、完整 roleCodes 提交。
 - `desktop/src/renderer/src/pages/TenantMembersPage.tsx`：按 `tenant.member.read/manage` 控制页面和操作；切换到成员多角色 API。
 - `desktop/src/renderer/src/pages/TenantOrgManagementPage.tsx`：按 `tenant.org.read/manage` 控制页面和按钮。
 - `desktop/src/renderer/src/components/tenant-org/OrgUnitTreePanel.tsx`：操作菜单根据 `canManageOrg` 展示或禁用。
@@ -391,7 +391,7 @@
     - 独立验收：平台权限不显示；保存自定义角色权限后详情刷新；内置角色无编辑入口。
 
 11. 成员多角色弹窗。
-    - 工作：改造 `TenantMemberRoleDialog` 为多选，加载候选角色和成员当前角色，提交完整 `roleIds`。
+    - 工作：改造 `TenantMemberRoleDialog` 为多选，加载候选角色和成员当前角色，提交完整 `roleCodes`。
     - 独立验收：`DO` 和 `DU` 可同时选择保存；`PLATFORM_ADMIN` 不出现；禁用角色不可新选。
 
 12. 自身角色变化后的权限刷新。

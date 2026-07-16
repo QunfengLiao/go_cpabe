@@ -1,0 +1,37 @@
+openapi: 3.0.3
+info:
+  title: 租户管理员新增成员接口
+  version: 1.0.0
+paths:
+  /api/v1/tenant/members:
+    post:
+      summary: 在当前租户创建或复用普通业务成员
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, display_name, email, roles]
+              properties:
+                username: { type: string }
+                display_name: { type: string }
+                email: { type: string, format: email }
+                phone: { type: string }
+                roles:
+                  type: array
+                  minItems: 1
+                  items: { type: string, enum: [DO, DU] }
+      responses:
+        '200': { description: 已有账号加入或恢复为成员 }
+        '201': { description: 新账号和成员创建成功 }
+        '400': { description: 输入或角色无效 }
+        '403': { description: 无成员管理权限或租户不可用 }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

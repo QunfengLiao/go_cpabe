@@ -180,13 +180,13 @@
 
 **用途**：全量替换成员角色集合。
 
-**前端方法**：`replaceTenantMemberRoles(userId, roleIds): Promise<MemberRoleDTO>`。
+**前端方法**：`replaceTenantMemberRoles(userId, roleCodes): Promise<MemberRoleDTO>`。
 
 **请求**：
 
 ```json
 {
-  "roleIds": [2, 3, 15]
+  "roleCodes": ["DO", "DU", "SRE_ENGINEER"]
 }
 ```
 

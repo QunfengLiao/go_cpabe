@@ -61,7 +61,7 @@
 
 **独立测试**：打开成员角色弹窗，同时选择 `DO`、`DU` 和一个自定义业务角色并保存，确认 `PLATFORM_ADMIN` 不出现，最后管理员保护和自身失权跳转生效。
 
-- [X] T012 [US4] TenantMemberRoleDialog 多角色改造；前置依赖：T002、T007、T008；修改范围：修改 `desktop/src/renderer/src/components/TenantMemberRoleDialog.tsx`、`desktop/src/renderer/src/pages/TenantMembersPage.tsx`、`desktop/src/renderer/src/api/tenant.ts`、`desktop/src/renderer/src/api/rbac.ts`，弹窗打开时加载候选租户角色和成员当前完整角色，按分组多选，保存时提交完整 `roleIds`，并保留关闭不保存时的临时状态隔离；验收方式：`DO` 和 `DU` 可以同时选择并保存，`PLATFORM_ADMIN` 不出现在租户角色选项，禁用角色不可新选，普通成员不能修改其他成员角色，保存后成员列表和角色数量刷新；对应规格场景：US4、FR-032 至 FR-038、SC-007、SC-008。
+- [X] T012 [US4] TenantMemberRoleDialog 多角色改造；前置依赖：T002、T007、T008；修改范围：修改 `desktop/src/renderer/src/components/TenantMemberRoleDialog.tsx`、`desktop/src/renderer/src/pages/TenantMembersPage.tsx`、`desktop/src/renderer/src/api/tenant.ts`、`desktop/src/renderer/src/api/rbac.ts`，弹窗打开时加载候选租户角色和成员当前完整角色，按分组多选，保存时提交完整 `roleCodes`，并保留关闭不保存时的临时状态隔离；验收方式：`DO` 和 `DU` 可以同时选择并保存，`PLATFORM_ADMIN` 不出现在租户角色选项，禁用角色不可新选，普通成员不能修改其他成员角色，保存后成员列表和角色数量刷新；对应规格场景：US4、FR-032 至 FR-038、SC-007、SC-008。
 - [X] T013 [US4] 修改自身角色后的权限刷新和安全跳转；前置依赖：T003、T006、T012；修改范围：修改 `desktop/src/renderer/src/auth/AuthContext.tsx`、`desktop/src/renderer/src/pages/TenantMembersPage.tsx`、`desktop/src/renderer/src/pages/TenantRolesPage.tsx`、`desktop/src/renderer/src/auth/RequirePermission.tsx`，成员角色或角色权限保存影响当前用户时调用 `refreshAuthorization()`，并在失去当前页面权限后计算安全落点；验收方式：修改自己的角色后当前权限立即刷新，菜单和按钮同步变化，失去当前页面权限后跳转到第一个有权限页面或 403，不产生重定向循环；对应规格场景：US4、US2、FR-017、FR-031、FR-038、SC-009。
 
 ---
