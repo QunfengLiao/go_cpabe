@@ -37,6 +37,10 @@ vendor/
 coverage.out
 go.work.sum
 
+# Python 辅助脚本缓存
+__pycache__/
+*.pyc
+
 # 后端构建产物
 tmp/
 logs/
