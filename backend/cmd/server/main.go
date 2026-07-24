@@ -44,6 +44,7 @@ func main() {
 	encryptionRepo := repository.NewGormEncryptionRepository(db)
 	rsaKeyRepo := repository.NewGormRSAKeyRepository(db)
 	auditRepo := repository.NewGormAuditRepository(db)
+	importRepo := repository.NewGormImportRepository(db)
 
 	tenantSvc := service.NewTenantService(tenantRepo, userRepo)
 	authorizationSvc := service.NewAuthorizationService(tenantRepo)
@@ -82,6 +83,9 @@ func main() {
 	encryptionAdmission := service.NewEncryptionAdmission(redisClient, cfg.EncryptionMaxConcurrentPerTenant, 15*time.Minute)
 	encryptionSvc := service.NewEncryptionService(encryptionRepo, rsaKeySvc, encryptedStorage, encryptionAdmission, auditRecorder, cfg.EncryptedFileMaxSize)
 	encryptedFileSvc := service.NewEncryptedFileService(encryptionRepo, encryptedStorage, auditRecorder)
+	importSvc := service.NewImportService(db, importRepo, auditRecorder, tenantRoleSvc, cfg.ImportMaxFileSize, cfg.ImportMaxRows, cfg.ImportBatchTTL, cfg.ImportTempDir)
+	importWorker := service.NewImportWorker(importSvc, service.ImportWorkerConfig{PollInterval: cfg.ImportWorkerPollInterval, Lease: cfg.ImportWorkerLease, BulkSize: cfg.ImportBulkSize})
+	go importWorker.Run(context.Background())
 
 	router := handler.NewRouter(handler.Dependencies{
 		AuthService:               authSvc,
@@ -102,8 +106,10 @@ func main() {
 		EncryptionService:         encryptionSvc,
 		RSAKeyService:             rsaKeySvc,
 		EncryptedFileService:      encryptedFileSvc,
+		ImportService:             importSvc,
 		MaxAvatarSize:             cfg.AvatarMaxSize,
 		MaxEncryptedFileSize:      cfg.EncryptedFileMaxSize,
+		ImportMaxFileSize:         cfg.ImportMaxFileSize,
 	})
 	router.Static(cfg.AvatarURLPrefix, cfg.AvatarUploadDir)
 

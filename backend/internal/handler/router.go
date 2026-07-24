@@ -27,8 +27,10 @@ type Dependencies struct {
 	EncryptionService         *service.EncryptionService
 	RSAKeyService             *service.RSAKeyService
 	EncryptedFileService      *service.EncryptedFileService
+	ImportService             service.ImportApplication
 	MaxAvatarSize             int64
 	MaxEncryptedFileSize      int64
+	ImportMaxFileSize         int64
 }
 
 // NewRouter 创建 Gin 路由，注册认证、用户、租户、平台后台和健康检查接口。
@@ -101,6 +103,20 @@ func NewRouter(deps Dependencies) *gin.Engine {
 	// 这样即使上传、删除等管理权限发生变化，租户成员仍能下载原始密文并在本地决定是否解密。
 	fileCenterTenant := api.Group("/tenant", middleware.AuthRequired(deps.AuthManager), middleware.TenantRequired(deps.TenantService))
 	currentTenant.POST("/members", middleware.TenantPermissionRequired(deps.AuthorizationService, "tenant.member.manage"), tenantHandler.CreateCurrentTenantMember)
+	if deps.ImportService != nil {
+		importHandler := NewImportHandler(deps.ImportService, deps.ImportMaxFileSize)
+		importPermission := middleware.TenantPermissionRequired(deps.AuthorizationService, "tenant.import.manage")
+		currentTenant.GET("/import/templates/users", importPermission, importHandler.TemplateUsers)
+		currentTenant.GET("/import/templates/org-units", importPermission, importHandler.TemplateOrgUnits)
+		currentTenant.POST("/import/users/validate", importPermission, importHandler.ValidateUsers)
+		currentTenant.POST("/import/users/confirm", importPermission, importHandler.ConfirmUsers)
+		currentTenant.POST("/import/org-units/validate", importPermission, importHandler.ValidateOrgUnits)
+		currentTenant.POST("/import/org-units/confirm", importPermission, importHandler.ConfirmOrgUnits)
+		currentTenant.GET("/import/batches", importPermission, importHandler.ListBatches)
+		currentTenant.GET("/import/batches/:batchId/status", importPermission, importHandler.GetBatchStatus)
+		currentTenant.GET("/import/batches/:batchId", importPermission, importHandler.GetBatch)
+		currentTenant.GET("/import/batches/:batchId/errors", importPermission, importHandler.ErrorReport)
+	}
 	if deps.TenantRoleService != nil {
 		currentTenant.GET("/permissions", middleware.TenantPermissionRequired(deps.AuthorizationService, "tenant.role.read"), rbacHandler.Permissions)
 		currentTenant.GET("/roles", middleware.TenantPermissionRequired(deps.AuthorizationService, "tenant.role.read"), rbacHandler.Roles)

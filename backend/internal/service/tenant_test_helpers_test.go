@@ -221,6 +221,23 @@ func (r *memoryTenantRepo) ListTenantUsers(_ context.Context, tenantID uint64) (
 	return records, nil
 }
 
+// ListTenantUsersPage 返回测试仓储的分页成员，模拟生产仓储的总数和窗口语义。
+func (r *memoryTenantRepo) ListTenantUsersPage(ctx context.Context, tenantID uint64, offset, limit int) (repository.TenantMemberPage, error) {
+	records, err := r.ListTenantUsers(ctx, tenantID)
+	if err != nil {
+		return repository.TenantMemberPage{}, err
+	}
+	total := int64(len(records))
+	if offset >= len(records) {
+		return repository.TenantMemberPage{Items: []repository.TenantMemberRecord{}, Total: total}, nil
+	}
+	end := offset + limit
+	if end > len(records) {
+		end = len(records)
+	}
+	return repository.TenantMemberPage{Items: records[offset:end], Total: total}, nil
+}
+
 // ListTenantUsageStats 返回测试仓储中的租户成员数和活跃管理员数，模拟数据库聚合查询。
 func (r *memoryTenantRepo) ListTenantUsageStats(_ context.Context) ([]repository.TenantUsageStats, error) {
 	r.mu.Lock()

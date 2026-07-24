@@ -74,6 +74,25 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   return promise;
 }
 
+// requestBinary 下载模板或错误报告，沿用认证、租户上下文和 401 刷新逻辑但不解析 JSON envelope。
+export async function requestBinary(path: string, options: RequestOptions = {}): Promise<Blob> {
+  let response = await fetchResponse(path, options);
+  if (response.status === 401 && !options.skipRefresh && await tryRefresh()) {
+    response = await fetchResponse(path, options);
+  }
+  if (!response.ok) {
+    let message = "文件下载失败";
+    try {
+      const envelope = await response.json() as ApiEnvelope<unknown>;
+      message = envelope.message ?? envelope.msg ?? message;
+    } catch {
+      // 非 JSON 错误响应使用通用提示，避免把服务端原始内容展示给用户。
+    }
+    throw new ApiError(message, response.status);
+  }
+  return response.blob();
+}
+
 async function rawRequest<T>(path: string, options: RequestOptions): Promise<T> {
   const response = await fetchResponse(path, options);
   if (response.status === 401 && !options.skipRefresh) {

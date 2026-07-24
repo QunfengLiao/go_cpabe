@@ -21,6 +21,7 @@ import { OrgMemberDrawer, type OrgMemberDrawerValues } from "../components/tenan
 import { OrgMemberTable } from "../components/tenant-org/OrgMemberTable";
 import { OrgUnitDrawer, type OrgUnitDrawerMode, type OrgUnitDrawerValues } from "../components/tenant-org/OrgUnitDrawer";
 import { OrgUnitTreePanel, flattenUnits } from "../components/tenant-org/OrgUnitTreePanel";
+import { TenantImportDrawer } from "../components/tenant-import/TenantImportDrawer";
 
 const emptyMemberPage: OrgMemberPage = { items: [], total: 0, page: 1, pageSize: 20 };
 
@@ -28,6 +29,7 @@ export function TenantOrgManagementPage() {
   const auth = useAuth();
   const tenantId = Number(auth.currentTenantId);
   const canManageOrg = auth.hasPermission("tenant.org.manage");
+  const canImport = auth.hasPermission("tenant.import.manage");
   const [units, setUnits] = useState<OrgUnitNode[]>([]);
   const [selectedUnitId, setSelectedUnitId] = useState<number>();
   const [activeTab, setActiveTab] = useState("units");
@@ -36,6 +38,7 @@ export function TenantOrgManagementPage() {
   const [loadingTree, setLoadingTree] = useState(false);
   const [loadingMembers, setLoadingMembers] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [unitDrawer, setUnitDrawer] = useState<{ open: boolean; mode: OrgUnitDrawerMode; unit?: OrgUnitNode; parent?: OrgUnitNode }>({ open: false, mode: "create" });
   const [memberDrawer, setMemberDrawer] = useState<{ open: boolean; member?: OrgMember }>({ open: false });
   const [memberFilters, setMemberFilters] = useState({ keyword: "", orgUnitId: undefined as number | undefined, status: "active" as "active" | "inactive" | "all" });
@@ -155,6 +158,7 @@ export function TenantOrgManagementPage() {
         <Button disabled={!canManageOrg} icon={<PlusOutlined />} type="primary" onClick={() => setUnitDrawer({ open: true, mode: "create" })}>
           新建部门
         </Button>
+        <Button disabled={!canImport} onClick={() => setImportOpen(true)}>批量导入</Button>
       </div>
 
       <Tabs
@@ -287,6 +291,7 @@ export function TenantOrgManagementPage() {
         onClose={() => setMemberDrawer({ open: false })}
         onSave={(values) => void saveMember(values)}
       />
+      <TenantImportDrawer open={importOpen} type="org_units" onClose={() => setImportOpen(false)} onCompleted={async () => { await loadTree(); if (membersLoaded) await loadMembers(); }} />
     </div>
   );
 }

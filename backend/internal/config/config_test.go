@@ -25,7 +25,7 @@ func TestLoadFindsDotEnvUpwards(t *testing.T) {
 		t.Fatalf("getwd: %v", err)
 	}
 	t.Cleanup(func() { _ = os.Chdir(oldWD) })
-	for _, key := range []string{"JWT_SECRET", "MYSQL_DSN", "MYSQL_HOST", "MYSQL_PORT", "MYSQL_USER", "MYSQL_PASSWORD", "MYSQL_DATABASE", "APP_PORT", "SERVER_ADDR", "APP_ENV"} {
+	for _, key := range []string{"JWT_SECRET", "MYSQL_DSN", "MYSQL_HOST", "MYSQL_PORT", "MYSQL_USER", "MYSQL_PASSWORD", "MYSQL_DATABASE", "APP_PORT", "SERVER_ADDR", "APP_ENV", "IMPORT_MAX_ROWS", "IMPORT_WORKER_POLL_INTERVAL"} {
 		old, existed := os.LookupEnv(key)
 		_ = os.Unsetenv(key)
 		t.Cleanup(func() {
@@ -55,6 +55,12 @@ func TestLoadFindsDotEnvUpwards(t *testing.T) {
 	}
 	if cfg.AppEnv != "test" {
 		t.Fatalf("unexpected app env: %q", cfg.AppEnv)
+	}
+	if cfg.ImportMaxRows != 10000 {
+		t.Fatalf("ImportMaxRows = %d, want default 10000", cfg.ImportMaxRows)
+	}
+	if cfg.ImportWorkerPollInterval != 5*time.Second {
+		t.Fatalf("ImportWorkerPollInterval = %s, want default 5s", cfg.ImportWorkerPollInterval)
 	}
 }
 

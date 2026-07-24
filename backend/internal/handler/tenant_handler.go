@@ -228,12 +228,14 @@ func (h *TenantHandler) ListTenantUsers(c *gin.Context) {
 	if !ok {
 		return
 	}
-	users, err := h.service.ListTenantUsers(c.Request.Context(), userID, tenantID)
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "50"))
+	result, err := h.service.ListTenantUsers(c.Request.Context(), userID, tenantID, page, pageSize)
 	if err != nil {
 		response.Fail(c, err)
 		return
 	}
-	response.OK(c, gin.H{"users": users})
+	response.OK(c, gin.H{"users": result.Users, "total": result.Total, "page": result.Page, "page_size": result.PageSize})
 }
 
 // setTenantStatus 复用启用/禁用租户逻辑，并统一响应租户状态。

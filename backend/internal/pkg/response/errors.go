@@ -191,4 +191,14 @@ var (
 	ErrStorageCompensationPending = NewError("STORAGE_COMPENSATION_PENDING", "存储清理已进入补偿队列", http.StatusAccepted)
 	// ErrInternal 表示服务端内部异常，响应中不暴露底层错误细节。
 	ErrInternal = NewError("INTERNAL_ERROR", "内部错误", http.StatusInternalServerError)
+	// ErrImportFileInvalid 表示导入文件扩展名、大小、标题或结构非法。
+	ErrImportFileInvalid = NewError("IMPORT_FILE_INVALID", "导入文件格式或内容非法", http.StatusBadRequest)
+	// ErrImportRowLimitExceeded 表示导入文件的数据行数超过服务端配置上限。
+	ErrImportRowLimitExceeded = NewError("IMPORT_ROW_LIMIT_EXCEEDED", "导入数据超过服务端最大行数，请拆分文件或调整 IMPORT_MAX_ROWS 后重试", http.StatusRequestEntityTooLarge)
+	// ErrImportValidation 表示导入文件存在逐行校验错误。
+	ErrImportValidation = NewError("IMPORT_VALIDATION_FAILED", "导入文件存在校验错误", http.StatusUnprocessableEntity)
+	// ErrImportBatchExpired 表示预校验批次已过期或状态不允许确认。
+	ErrImportBatchExpired = NewError("IMPORT_BATCH_EXPIRED", "导入批次已过期或状态已变化", http.StatusConflict)
+	// ErrImportBatchNotFound 表示批次不属于当前租户或当前操作者。
+	ErrImportBatchNotFound = NewError("IMPORT_BATCH_NOT_FOUND", "导入批次不存在", http.StatusNotFound)
 )

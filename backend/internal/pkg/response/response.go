@@ -25,6 +25,11 @@ func Created(c *gin.Context, data any) {
 	c.JSON(http.StatusCreated, Envelope{Code: "OK", Message: "success", Data: data, RequestID: requestID(c)})
 }
 
+// Accepted 返回任务已受理响应；调用方应通过状态接口观察后台执行结果。
+func Accepted(c *gin.Context, data any) {
+	c.JSON(http.StatusAccepted, Envelope{Code: "OK", Message: "accepted", Data: data, RequestID: requestID(c)})
+}
+
 // Fail 将业务错误或未知错误转换为统一响应结构。
 func Fail(c *gin.Context, err error) {
 	appErr := ErrInternal

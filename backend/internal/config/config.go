@@ -47,9 +47,23 @@ type Config struct {
 	AuditDispatchMaxBackoff time.Duration
 	// AuditDeliveredRetention 是已投递 outbox 记录的保留时间，死信不受该配置自动删除。
 	AuditDeliveredRetention time.Duration
-	RunAutoMigrate          bool
-	RunSeed                 bool
-	SeedDemoData            bool
+	// ImportMaxFileSize 限制单个导入 Excel 文件大小，服务端校验后端边界而不是信任前端提示。
+	ImportMaxFileSize int64
+	// ImportMaxRows 限制单个导入批次数据行数，避免预校验快照无限占用内存和数据库空间。
+	ImportMaxRows int
+	// ImportBatchTTL 控制预校验批次的有效期，确认时会再次检查。
+	ImportBatchTTL time.Duration
+	// ImportTempDir 是导入临时文件目录，文件名由服务端随机生成。
+	ImportTempDir string
+	// ImportWorkerPollInterval 控制空闲 Worker 检查持久化队列的频率。
+	ImportWorkerPollInterval time.Duration
+	// ImportWorkerLease 是单个导入批次的执行租约，进程退出后允许其他实例接管。
+	ImportWorkerLease time.Duration
+	// ImportBulkSize 限制单条批量 SQL 的数据行数，避免超过数据库参数上限。
+	ImportBulkSize int
+	RunAutoMigrate bool
+	RunSeed        bool
+	SeedDemoData   bool
 }
 
 // Load 从环境变量和可选 .env 文件中加载运行配置，并校验必要的密钥和数据库连接信息。
@@ -103,6 +117,31 @@ func Load() (Config, error) {
 	}
 	if cfg.EncryptedFileMaxSize <= 0 {
 		return Config{}, errors.New("ENCRYPTED_FILE_MAX_SIZE must be positive")
+	}
+	cfg.ImportMaxFileSize, err = getenvInt64("IMPORT_MAX_FILE_SIZE", 10*1024*1024)
+	if err != nil || cfg.ImportMaxFileSize <= 0 {
+		return Config{}, errors.New("IMPORT_MAX_FILE_SIZE must be positive")
+	}
+	cfg.ImportMaxRows, err = getenvInt("IMPORT_MAX_ROWS", 10000)
+	if err != nil || cfg.ImportMaxRows <= 0 {
+		return Config{}, errors.New("IMPORT_MAX_ROWS must be positive")
+	}
+	cfg.ImportBatchTTL, err = getenvDuration("IMPORT_BATCH_TTL", 30*time.Minute)
+	if err != nil || cfg.ImportBatchTTL < time.Minute {
+		return Config{}, errors.New("IMPORT_BATCH_TTL must be at least 1m")
+	}
+	cfg.ImportTempDir = getenv("IMPORT_TEMP_DIR", "uploads/imports/.staging")
+	cfg.ImportWorkerPollInterval, err = getenvDuration("IMPORT_WORKER_POLL_INTERVAL", 5*time.Second)
+	if err != nil || cfg.ImportWorkerPollInterval < 100*time.Millisecond {
+		return Config{}, errors.New("IMPORT_WORKER_POLL_INTERVAL must be at least 100ms")
+	}
+	cfg.ImportWorkerLease, err = getenvDuration("IMPORT_WORKER_LEASE", 2*time.Minute)
+	if err != nil || cfg.ImportWorkerLease < 10*time.Second {
+		return Config{}, errors.New("IMPORT_WORKER_LEASE must be at least 10s")
+	}
+	cfg.ImportBulkSize, err = getenvInt("IMPORT_BULK_SIZE", 300)
+	if err != nil || cfg.ImportBulkSize <= 0 || cfg.ImportBulkSize > 1000 {
+		return Config{}, errors.New("IMPORT_BULK_SIZE must be between 1 and 1000")
 	}
 	cfg.EncryptionMaxConcurrentPerTenant, err = getenvInt("ENCRYPTION_MAX_CONCURRENT_PER_TENANT", 3)
 	if err != nil {

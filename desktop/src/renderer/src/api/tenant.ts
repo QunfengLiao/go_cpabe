@@ -1,6 +1,13 @@
 import type { SwitchTenantData, TenantContextData, TenantMember, TenantMemberCreateResult } from "../types";
 import { request } from "./request";
 
+export interface TenantMemberPage {
+  users: TenantMember[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
 export function listMyTenants(): Promise<TenantContextData> {
   return request("/me/context");
 }
@@ -13,9 +20,8 @@ export function switchTenant(tenantId: number): Promise<SwitchTenantData> {
   });
 }
 
-export async function listTenantMembers(tenantId: number): Promise<TenantMember[]> {
-  const data = await request<{ users: TenantMember[] }>(`/tenants/${tenantId}/users`);
-  return data.users;
+export function listTenantMembers(tenantId: number, page = 1, pageSize = 50): Promise<TenantMemberPage> {
+  return request<TenantMemberPage>(`/tenants/${tenantId}/users?page=${page}&page_size=${pageSize}`);
 }
 
 export function createTenantMember(input: { username: string; displayName: string; email: string; phone?: string; roles: Array<"DO" | "DU"> }): Promise<TenantMemberCreateResult> {
