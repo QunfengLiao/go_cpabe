@@ -8121,3 +8121,108 @@ html[data-mode="dark"] .login-robot-face {
     flex: 1 1 100%;
   }
 }
+
+.tenant-import-drawer .ant-drawer-body {
+  min-height: 0;
+  overflow: hidden;
+  padding: clamp(16px, 2vw, 24px);
+}
+
+.tenant-import-shell {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.tenant-import-steps {
+  flex: 0 0 auto;
+  padding: 4px 0 8px;
+}
+
+.tenant-import-content {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 2px 24px;
+}
+
+.tenant-import-step {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 1rem;
+  margin-block-start: 1.5rem;
+}
+
+.tenant-import-step > .ant-typography {
+  margin-block: 0;
+}
+
+.tenant-import-upload,
+.tenant-import-upload .ant-upload-wrapper,
+.tenant-import-upload .ant-upload-drag {
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+
+.tenant-import-upload .ant-upload-drag-container {
+  padding: clamp(24px, 5vh, 48px) 16px;
+}
+
+.tenant-import-selected-file {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  color: var(--color-primary);
+  background: var(--color-surface);
+}
+
+.tenant-import-selected-file-name {
+  min-width: 0;
+}
+
+.tenant-import-actions {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding-block-start: 4px;
+}
+
+.tenant-import-actions .ant-btn {
+  flex: 0 0 auto;
+}
+
+.tenant-import-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0.75rem;
+}
+
+.tenant-import-summary-grid .ant-card .ant-typography {
+  margin-block: 0;
+}
+
+@media (max-width: 640px) {
+  .tenant-import-drawer .ant-drawer-body {
+    padding: 14px;
+  }
+
+  .tenant-import-steps {
+    overflow-x: auto;
+    padding-block-end: 12px;
+  }
+
+  .tenant-import-actions .ant-btn {
+    flex: 1 1 12rem;
+  }
+}

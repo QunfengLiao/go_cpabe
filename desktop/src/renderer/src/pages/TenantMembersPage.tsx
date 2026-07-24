@@ -1,9 +1,11 @@
 import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { Pagination } from "antd";
 import { createTenantMember, listTenantMembers } from "../api/tenant";
 import { ApiError } from "../api/request";
 import { useAuth } from "../auth/AuthContext";
 import { Alert } from "../components/Alert";
 import { TenantMemberRoleDialog } from "../components/TenantMemberRoleDialog";
+import { TenantImportDrawer } from "../components/tenant-import/TenantImportDrawer";
 import type { MemberRoleDTO, TenantMember, TenantRole } from "../types";
 
 export function memberCreationSuccessMessage(result: { created_user: boolean; temporary_password?: string }): string {
@@ -15,16 +17,19 @@ export function TenantMembersPage() {
   const tenantId = Number(auth.currentTenantId);
   const currentTenant = useMemo(() => auth.tenants.find((tenant) => tenant.tenant_id === tenantId), [auth.tenants, tenantId]);
   const canAssignBusinessRole = auth.hasPermission("tenant.member.manage");
+  const canImport = auth.hasPermission("tenant.import.manage");
   const [members, setMembers] = useState<TenantMember[]>([]);
+  const [memberPage, setMemberPage] = useState({ page: 1, pageSize: 50, total: 0 });
   const [selectedMember, setSelectedMember] = useState<TenantMember | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createForm, setCreateForm] = useState({ username: "", displayName: "", email: "", phone: "", roles: ["DU"] as Array<"DO" | "DU"> });
 
-  async function loadMembers() {
+  async function loadMembers(page = 1, pageSize = memberPage.pageSize) {
     if (!tenantId) {
       setError("请先选择租户");
       setLoading(false);
@@ -33,7 +38,9 @@ export function TenantMembersPage() {
     setLoading(true);
     setError("");
     try {
-      setMembers(await listTenantMembers(tenantId));
+      const result = await listTenantMembers(tenantId, page, pageSize);
+      setMembers(result.users);
+      setMemberPage({ page: result.page, pageSize: result.page_size, total: result.total });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "获取成员列表失败");
     } finally {
@@ -42,7 +49,7 @@ export function TenantMembersPage() {
   }
 
   useEffect(() => {
-    void loadMembers();
+    void loadMembers(1);
   }, [tenantId]);
 
   async function onRolesSaved(result: MemberRoleDTO) {
@@ -56,7 +63,7 @@ export function TenantMembersPage() {
       setSelectedMember(null);
       setSuccess("成员角色已更新");
       setMembers((current) => current.map((member) => member.user_id === result.userId ? { ...member, roles: result.roles.map((role) => role.code) } : member));
-      await loadMembers();
+      await loadMembers(memberPage.page);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "角色刷新失败");
     }
@@ -93,7 +100,8 @@ export function TenantMembersPage() {
         </div>
         <div className="platform-actions">
           {canAssignBusinessRole && <button className="primary-action" type="button" onClick={() => setCreateOpen(true)}>新增成员</button>}
-          <button className="secondary-action" type="button" onClick={() => void loadMembers()} disabled={loading}>
+          {canImport && <button className="secondary-action" type="button" onClick={() => setImportOpen(true)}>批量导入</button>}
+          <button className="secondary-action" type="button" onClick={() => void loadMembers(memberPage.page)} disabled={loading}>
             刷新
           </button>
         </div>
@@ -113,7 +121,8 @@ export function TenantMembersPage() {
         {loading ? (
           <div className="empty-state">正在加载租户成员...</div>
         ) : members.length > 0 ? (
-          <table className="platform-table">
+          <>
+            <table className="platform-table">
             <thead>
               <tr>
                 <th>成员</th>
@@ -150,7 +159,16 @@ export function TenantMembersPage() {
                 </tr>
               ))}
             </tbody>
-          </table>
+            </table>
+            <Pagination
+              current={memberPage.page}
+              pageSize={memberPage.pageSize}
+              total={memberPage.total}
+              showSizeChanger={false}
+              showTotal={(total) => `共 ${total} 名成员`}
+              onChange={(page) => void loadMembers(page)}
+            />
+          </>
         ) : (
           <div className="empty-state">当前租户暂无成员。</div>
         )}
@@ -187,6 +205,7 @@ export function TenantMembersPage() {
           </section>
         </div>
       )}
+      <TenantImportDrawer open={importOpen} type="users" onClose={() => setImportOpen(false)} onCompleted={() => loadMembers(memberPage.page)} />
     </section>
   );
 }
