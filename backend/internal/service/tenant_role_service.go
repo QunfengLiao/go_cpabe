@@ -8,6 +8,8 @@ import (
 	"go-cpabe/backend/internal/domain"
 	"go-cpabe/backend/internal/pkg/response"
 	"go-cpabe/backend/internal/repository"
+
+	"gorm.io/gorm"
 )
 
 // TenantRoleService 负责租户自定义角色、角色权限和成员多角色的业务编排。
@@ -176,6 +178,22 @@ func (s *TenantRoleService) ReplaceMemberRoles(ctx context.Context, tenantID uin
 		return domain.MemberRoleDTO{}, mapRBACError(err)
 	}
 	return s.GetMemberRoles(ctx, tenantID, userID)
+}
+
+// ReplaceMemberRolesInTransaction 在已有业务事务中复用成员角色替换规则，避免导入流程直接绕过 RBAC 服务边界。
+// 该方法只接受当前 Gorm 仓储实现，因为事务句柄必须与仓储使用同一个数据库连接上下文。
+func (s *TenantRoleService) ReplaceMemberRolesInTransaction(ctx context.Context, tx *gorm.DB, tenantID uint64, userID uint64, actorID uint64, roleCodes []string) error {
+	if s == nil || s.rbac == nil {
+		return response.ErrInternal
+	}
+	txRepository, ok := s.rbac.(*repository.GormTenantRepository)
+	if !ok {
+		return response.ErrInternal
+	}
+	if err := txRepository.ReplaceMemberRolesTx(ctx, tx, tenantID, userID, roleCodes, actorID); err != nil {
+		return mapRBACError(err)
+	}
+	return nil
 }
 
 // CurrentAuthorization 返回当前登录用户在当前租户内的真实授权上下文。

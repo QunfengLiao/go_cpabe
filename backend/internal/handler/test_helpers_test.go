@@ -392,6 +392,23 @@ func (r *testTenantRepo) ListTenantUsers(_ context.Context, tenantID uint64) ([]
 	return records, nil
 }
 
+// ListTenantUsersPage 返回 handler 测试所需的成员窗口和总数。
+func (r *testTenantRepo) ListTenantUsersPage(ctx context.Context, tenantID uint64, offset, limit int) (repository.TenantMemberPage, error) {
+	records, err := r.ListTenantUsers(ctx, tenantID)
+	if err != nil {
+		return repository.TenantMemberPage{}, err
+	}
+	total := int64(len(records))
+	if offset >= len(records) {
+		return repository.TenantMemberPage{Items: []repository.TenantMemberRecord{}, Total: total}, nil
+	}
+	end := offset + limit
+	if end > len(records) {
+		end = len(records)
+	}
+	return repository.TenantMemberPage{Items: records[offset:end], Total: total}, nil
+}
+
 // ListTenantUsageStats 返回 handler 测试仓储中的租户成员数和活跃管理员数。
 func (r *testTenantRepo) ListTenantUsageStats(_ context.Context) ([]repository.TenantUsageStats, error) {
 	r.mu.Lock()

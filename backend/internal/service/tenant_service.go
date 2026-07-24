@@ -517,20 +517,43 @@ func (s *TenantService) RemoveTenantUser(ctx context.Context, actorID uint64, te
 	return s.tenants.RemoveTenantUser(ctx, tenantID, userID)
 }
 
-// ListTenantUsers 校验租户管理权限后返回租户成员列表。
-func (s *TenantService) ListTenantUsers(ctx context.Context, actorID uint64, tenantID uint64) ([]domain.TenantMemberDTO, error) {
+// TenantMemberPage 是租户管理端分页成员响应，Users 只包含当前页且 Total 用于前端翻页。
+type TenantMemberPage struct {
+	Users    []domain.TenantMemberDTO
+	Total    int64
+	Page     int
+	PageSize int
+}
+
+// ListTenantUsers 校验租户管理权限后返回分页成员列表，页大小由服务端限制以保护数据库和前端渲染。
+func (s *TenantService) ListTenantUsers(ctx context.Context, actorID uint64, tenantID uint64, page, pageSize int) (TenantMemberPage, error) {
 	if err := s.ensureTenantManager(ctx, actorID, tenantID); err != nil {
-		return nil, err
+		return TenantMemberPage{}, err
 	}
-	members, err := s.tenants.ListTenantUsers(ctx, tenantID)
+	page, pageSize = normalizeTenantMemberPage(page, pageSize)
+	memberPage, err := s.tenants.ListTenantUsersPage(ctx, tenantID, (page-1)*pageSize, pageSize)
 	if err != nil {
-		return nil, err
+		return TenantMemberPage{}, err
 	}
-	result := make([]domain.TenantMemberDTO, 0, len(members))
-	for _, member := range members {
+	result := make([]domain.TenantMemberDTO, 0, len(memberPage.Items))
+	for _, member := range memberPage.Items {
 		result = append(result, toTenantMemberDTO(member))
 	}
-	return result, nil
+	return TenantMemberPage{Users: result, Total: memberPage.Total, Page: page, PageSize: pageSize}, nil
+}
+
+// normalizeTenantMemberPage 应用默认页大小和最大页大小，客户端不能通过超大参数恢复万级全量查询。
+func normalizeTenantMemberPage(page, pageSize int) (int, int) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 50
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+	return page, pageSize
 }
 
 // ensureTenantManager 是迁移期兼容函数，只允许真实租户管理员角色管理旧租户资源接口。

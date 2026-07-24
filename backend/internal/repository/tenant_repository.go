@@ -51,6 +51,7 @@ type TenantRepository interface {
 	FindTenantUser(ctx context.Context, tenantID uint64, userID uint64) (*domain.TenantUser, error)
 	ListTenantsByUser(ctx context.Context, userID uint64) ([]domain.Tenant, error)
 	ListTenantUsers(ctx context.Context, tenantID uint64) ([]TenantMemberRecord, error)
+	ListTenantUsersPage(ctx context.Context, tenantID uint64, offset, limit int) (TenantMemberPage, error)
 	ListTenantUsageStats(ctx context.Context) ([]TenantUsageStats, error)
 	GetTenantUsageStats(ctx context.Context, tenantID uint64) (TenantUsageStats, error)
 
@@ -77,6 +78,12 @@ type TenantMemberRecord struct {
 	MemberStatus domain.TenantUserStatus
 	Roles        []domain.RoleCode
 	JoinedAt     time.Time
+}
+
+// TenantMemberPage 是服务端分页后的成员聚合结果，Total 只统计能关联到有效用户的成员关系。
+type TenantMemberPage struct {
+	Items []TenantMemberRecord
+	Total int64
 }
 
 // TenantUsageStats 是平台租户列表和 dashboard 所需的轻量统计结果。
@@ -221,56 +228,76 @@ func (r *GormTenantRepository) ListTenantsByUser(ctx context.Context, userID uin
 
 // ListTenantUsers 返回指定租户成员及其展示资料和租户内角色。
 func (r *GormTenantRepository) ListTenantUsers(ctx context.Context, tenantID uint64) ([]TenantMemberRecord, error) {
-	var members []domain.TenantUser
-	if err := r.db.WithContext(ctx).
-		Select("id, tenant_id, user_id, status, created_at").
-		Where("tenant_id = ?", tenantID).
-		Order("id ASC").
-		Find(&members).Error; err != nil {
-		return nil, err
+	const chunkSize = 500
+	records := make([]TenantMemberRecord, 0)
+	for offset := 0; ; offset += chunkSize {
+		chunk, err := r.listTenantMemberRecords(ctx, tenantID, offset, chunkSize)
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, chunk...)
+		if len(chunk) < chunkSize {
+			break
+		}
 	}
-	if len(members) == 0 {
+	return records, nil
+}
+
+// ListTenantUsersPage 统计有效成员总数并只聚合当前页用户与角色，避免生成万级 ID 的 IN 查询。
+func (r *GormTenantRepository) ListTenantUsersPage(ctx context.Context, tenantID uint64, offset, limit int) (TenantMemberPage, error) {
+	var total int64
+	if err := r.validTenantMembersQuery(ctx, tenantID).Count(&total).Error; err != nil {
+		return TenantMemberPage{}, err
+	}
+	items, err := r.listTenantMemberRecords(ctx, tenantID, offset, limit)
+	if err != nil {
+		return TenantMemberPage{}, err
+	}
+	return TenantMemberPage{Items: items, Total: total}, nil
+}
+
+// validTenantMembersQuery 构造只包含可关联有效用户的租户成员范围，历史孤儿关系不会使管理列表整体返回 500。
+func (r *GormTenantRepository) validTenantMembersQuery(ctx context.Context, tenantID uint64) *gorm.DB {
+	return r.db.WithContext(ctx).
+		Table("tenant_users").
+		Joins("JOIN users ON users.id = tenant_users.user_id AND users.deleted_at IS NULL").
+		Where("tenant_users.tenant_id = ? AND tenant_users.deleted_at IS NULL AND tenant_users.user_id > 0", tenantID)
+}
+
+// listTenantMemberRecords 分页读取成员与用户展示字段，再仅为当前窗口加载角色；offset 和 limit 由 Service 约束。
+func (r *GormTenantRepository) listTenantMemberRecords(ctx context.Context, tenantID uint64, offset, limit int) ([]TenantMemberRecord, error) {
+	if limit <= 0 {
 		return []TenantMemberRecord{}, nil
 	}
-	userIDs := make([]uint64, 0, len(members))
-	for _, member := range members {
-		userIDs = append(userIDs, member.UserID)
+	type memberRow struct {
+		UserID       uint64
+		Username     string
+		Email        string
+		Nickname     string
+		Phone        string
+		MemberStatus domain.TenantUserStatus
+		JoinedAt     time.Time
 	}
-
-	var users []domain.User
-	if err := r.db.WithContext(ctx).
-		Select("id, username, email, nickname, phone").
-		Where("id IN ?", userIDs).
-		Find(&users).Error; err != nil {
+	var rows []memberRow
+	if err := r.validTenantMembersQuery(ctx, tenantID).
+		Select("tenant_users.user_id AS user_id, users.username AS username, users.email AS email, users.nickname AS nickname, users.phone AS phone, tenant_users.status AS member_status, tenant_users.created_at AS joined_at").
+		Order("tenant_users.id ASC").
+		Offset(offset).
+		Limit(limit).
+		Scan(&rows).Error; err != nil {
 		return nil, err
 	}
-	usersByID := make(map[uint64]domain.User, len(users))
-	for _, user := range users {
-		usersByID[user.ID] = user
+	userIDs := make([]uint64, 0, len(rows))
+	for _, row := range rows {
+		userIDs = append(userIDs, row.UserID)
 	}
-
 	rolesByUserID, err := r.listRoleCodesByTenantUsers(ctx, tenantID, userIDs)
 	if err != nil {
 		return nil, err
 	}
-
-	records := make([]TenantMemberRecord, 0, len(members))
-	// 成员列表以前在循环中逐个查询 users 和 roles；这里按租户一次性批量取回，避免成员数增长时 SQL 线性膨胀。
-	for _, member := range members {
-		user, ok := usersByID[member.UserID]
-		if !ok {
-			return nil, gorm.ErrRecordNotFound
-		}
-		records = append(records, TenantMemberRecord{
-			UserID:       user.ID,
-			Username:     user.Username,
-			Email:        user.Email,
-			Nickname:     user.Nickname,
-			Phone:        user.Phone,
-			MemberStatus: member.Status,
-			Roles:        rolesByUserID[member.UserID],
-			JoinedAt:     member.CreatedAt,
-		})
+	records := make([]TenantMemberRecord, 0, len(rows))
+	for _, row := range rows {
+		records = append(records, TenantMemberRecord{UserID: row.UserID, Username: row.Username, Email: row.Email, Nickname: row.Nickname, Phone: row.Phone, MemberStatus: row.MemberStatus, Roles: rolesByUserID[row.UserID], JoinedAt: row.JoinedAt})
 	}
 	return records, nil
 }
@@ -556,6 +583,9 @@ func (r *GormTenantRepository) CountTenantAdmins(ctx context.Context, tenantID u
 
 // listRoleCodesByTenantUsers 批量返回一组用户在同一租户内的角色编码，供成员列表消除角色查询 N+1。
 func (r *GormTenantRepository) listRoleCodesByTenantUsers(ctx context.Context, tenantID uint64, userIDs []uint64) (map[uint64][]domain.RoleCode, error) {
+	if len(userIDs) == 0 {
+		return map[uint64][]domain.RoleCode{}, nil
+	}
 	var rows []struct {
 		UserID uint64
 		Code   domain.RoleCode

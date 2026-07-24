@@ -217,59 +217,65 @@ func (r *GormTenantRepository) ListMemberRoles(ctx context.Context, tenantID uin
 // ReplaceMemberRoles 在事务中全量替换成员角色，撤销旧角色时保留历史记录并允许 DO 和 DU 同时存在。
 func (r *GormTenantRepository) ReplaceMemberRoles(ctx context.Context, tenantID uint64, userID uint64, roleCodes []string, assignedBy uint64) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := r.lockTenantTx(ctx, tx, tenantID); err != nil {
-			return err
-		}
-		if err := r.ensureActiveTenantMember(ctx, tx, tenantID, userID); err != nil {
-			return err
-		}
-		roles, err := r.listAssignableRolesForUpdateTx(ctx, tx, tenantID, roleCodes)
-		if err != nil {
-			return err
-		}
-		for _, role := range roles {
-			if role.ScopeType != domain.RoleScopeTypeTenant || role.Code == domain.RolePlatformAdmin {
-				return ErrCannotAssignPlatformRole
-			}
-			if role.Status != domain.RoleStatusActive {
-				return ErrRoleDisabled
-			}
-		}
-		roleIDs := roleIDsOf(roles)
-		if err := r.revokeMissingRolesTx(ctx, tx, tenantID, userID, roleIDs); err != nil {
-			return err
-		}
-		for _, roleID := range roleIDs {
-			assignment := domain.UserRoleAssignment{
-				TenantID:         &tenantID,
-				UserID:           userID,
-				RoleID:           roleID,
-				AssignmentSource: domain.AssignmentSourceManual,
-				AssignedBy:       &assignedBy,
-				Status:           domain.UserRoleStatusActive,
-			}
-			if err := tx.Clauses(clause.OnConflict{
-				Columns: []clause.Column{{Name: "tenant_id"}, {Name: "user_id"}, {Name: "role_id"}},
-				DoUpdates: clause.Assignments(map[string]any{
-					"assignment_source": domain.AssignmentSourceManual,
-					"assigned_by":       assignedBy,
-					"status":            domain.UserRoleStatusActive,
-					"revoked_at":        nil,
-					"updated_at":        gorm.Expr("CURRENT_TIMESTAMP(3)"),
-				}),
-			}).Create(&assignment).Error; err != nil {
-				return err
-			}
-		}
-		count, err := r.countTenantAdminsTx(ctx, tx, tenantID)
-		if err != nil {
-			return err
-		}
-		if count == 0 {
-			return ErrCannotRemoveLastTenantAdmin
-		}
-		return nil
+		return r.ReplaceMemberRolesTx(ctx, tx, tenantID, userID, roleCodes, assignedBy)
 	})
+}
+
+// ReplaceMemberRolesTx 在调用方事务中全量替换成员角色，供批量导入与普通 RBAC 修改共享同一安全边界。
+// 调用方必须已经开启事务；方法会锁定租户、校验成员和角色范围，并保护最后一名租户管理员。
+func (r *GormTenantRepository) ReplaceMemberRolesTx(ctx context.Context, tx *gorm.DB, tenantID uint64, userID uint64, roleCodes []string, assignedBy uint64) error {
+	if err := r.lockTenantTx(ctx, tx, tenantID); err != nil {
+		return err
+	}
+	if err := r.ensureActiveTenantMember(ctx, tx, tenantID, userID); err != nil {
+		return err
+	}
+	roles, err := r.listAssignableRolesForUpdateTx(ctx, tx, tenantID, roleCodes)
+	if err != nil {
+		return err
+	}
+	for _, role := range roles {
+		if role.ScopeType != domain.RoleScopeTypeTenant || role.Code == domain.RolePlatformAdmin {
+			return ErrCannotAssignPlatformRole
+		}
+		if role.Status != domain.RoleStatusActive {
+			return ErrRoleDisabled
+		}
+	}
+	roleIDs := roleIDsOf(roles)
+	if err := r.revokeMissingRolesTx(ctx, tx, tenantID, userID, roleIDs); err != nil {
+		return err
+	}
+	for _, roleID := range roleIDs {
+		assignment := domain.UserRoleAssignment{
+			TenantID:         &tenantID,
+			UserID:           userID,
+			RoleID:           roleID,
+			AssignmentSource: domain.AssignmentSourceManual,
+			AssignedBy:       &assignedBy,
+			Status:           domain.UserRoleStatusActive,
+		}
+		if err := tx.Clauses(clause.OnConflict{
+			Columns: []clause.Column{{Name: "tenant_id"}, {Name: "user_id"}, {Name: "role_id"}},
+			DoUpdates: clause.Assignments(map[string]any{
+				"assignment_source": domain.AssignmentSourceManual,
+				"assigned_by":       assignedBy,
+				"status":            domain.UserRoleStatusActive,
+				"revoked_at":        nil,
+				"updated_at":        gorm.Expr("CURRENT_TIMESTAMP(3)"),
+			}),
+		}).Create(&assignment).Error; err != nil {
+			return err
+		}
+	}
+	count, err := r.countTenantAdminsTx(ctx, tx, tenantID)
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return ErrCannotRemoveLastTenantAdmin
+	}
+	return nil
 }
 
 // ListTenantPermissionCodesByUser 查询用户在指定租户内所有有效角色权限的去重并集。

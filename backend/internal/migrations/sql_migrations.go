@@ -15,7 +15,7 @@ import (
 // 当前仓库早期 SQL 脚本并非全部幂等，直接从 001 重放会破坏已有开发库。因此这里先只接入
 // 本阶段新增且声明幂等的 RBAC 迁移文件，后续若要全量迁移流水线，应先补齐历史脚本的迁移记录。
 func RunExplicitMigrations(db *gorm.DB) error {
-	for _, name := range []string{"010_tenant_rbac.sql", "011_encrypted_file_framework.sql", "012_multi_recipient_file_center.sql", "013_do_received_file_permission.sql", "014_audit_outbox.sql", "015_client_ciphertext_metadata.sql", "016_repair_tenant_member_integrity.sql"} {
+	for _, name := range []string{"010_tenant_rbac.sql", "011_encrypted_file_framework.sql", "012_multi_recipient_file_center.sql", "013_do_received_file_permission.sql", "014_audit_outbox.sql", "015_client_ciphertext_metadata.sql", "016_repair_tenant_member_integrity.sql", "017_tenant_import.sql", "018_async_tenant_import.sql", "019_repair_zero_user_relations.sql"} {
 		if err := runSQLMigrationFile(db, name); err != nil {
 			return err
 		}

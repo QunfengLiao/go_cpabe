@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 
@@ -24,9 +25,24 @@ func TestTenantAdminEndpoints(t *testing.T) {
 		t.Fatalf("add status=%d body=%s", add.Code, add.Body.String())
 	}
 
-	users := performJSON(app.router, http.MethodGet, "/api/v1/tenants/1/users", nil, adminAccess)
+	users := performJSON(app.router, http.MethodGet, "/api/v1/tenants/1/users?page=1&page_size=50", nil, adminAccess)
 	if users.Code != http.StatusOK {
 		t.Fatalf("users status=%d body=%s", users.Code, users.Body.String())
+	}
+	var envelope struct {
+		Data struct {
+			Users    []domain.TenantMemberDTO `json:"users"`
+			Total    int64                    `json:"total"`
+			Page     int                      `json:"page"`
+			PageSize int                      `json:"page_size"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(users.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode users page: %v", err)
+	}
+	page := envelope.Data
+	if page.Total != 1 || page.Page != 1 || page.PageSize != 50 || len(page.Users) != 1 {
+		t.Fatalf("unexpected users page: %+v", page)
 	}
 
 	platformOnly := performJSON(app.router, http.MethodPatch, "/api/v1/tenants/1/disable", nil, adminAccess)
